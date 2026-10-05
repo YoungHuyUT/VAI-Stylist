@@ -61,7 +61,10 @@ export interface HueKeyRecolorUniforms {
   uOuterHemMaskY: { value: number };
   uHideClippedLowerMesh: { value: number };
   uIsShortBottom: { value: number };
+  uIsShortSkirt: { value: number };
   uShortBottomHemY: { value: number };
+  uCanRevealLegUnderlay: { value: number };
+  uGarmentSway: { value: number };
 }
 
 export type HierarchicalBoneZone =
@@ -131,6 +134,75 @@ export function computeHierarchicalBoneMask(
   };
 }
 
+type LowerGarmentMaskUniforms = Pick<
+  HueKeyRecolorUniforms,
+  | 'uIsTrouserMesh'
+  | 'uOuterHemMaskY'
+  | 'uHideClippedLowerMesh'
+  | 'uIsShortBottom'
+  | 'uIsShortSkirt'
+  | 'uShortBottomHemY'
+  | 'uCanRevealLegUnderlay'
+  | 'uEnableTrouserKey'
+>;
+
+type ShortGarmentKind = 'shorts' | 'skirt' | null;
+
+function normalizeGarmentLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function getShortGarmentKind(bottomId: string): ShortGarmentKind {
+  const normalizedId = normalizeGarmentLabel(bottomId);
+  if (normalizedId.includes('miniskirt') || normalizedId.includes('chanvay')) {
+    return 'skirt';
+  }
+  if (normalizedId.includes('short') || normalizedId.includes('catngan')) {
+    return 'shorts';
+  }
+  return null;
+}
+
+function isLowerGarmentLabel(label: string): boolean {
+  const normalizedName = normalizeGarmentLabel(label);
+  return /trouser|pant|quan|skirt|vay|short|bottom|jean|thuong/.test(
+    normalizedName
+  );
+}
+
+export function applyHierarchicalBoneMaskUniforms(
+  uniformSets: LowerGarmentMaskUniforms[],
+  mask: HierarchicalBoneMaskState,
+  bottomId: string,
+  hasSkinnedLegUnderlay = false
+): void {
+  const shortGarmentKind = getShortGarmentKind(bottomId);
+  const shortBottomHemMeters = shortGarmentKind === 'shorts' ? 0.64 : 0.6;
+
+  for (const uniforms of uniformSets) {
+    const isTrouserMesh = uniforms.uIsTrouserMesh.value > 0.5;
+    uniforms.uOuterHemMaskY.value = mask.outerHemHeightMeters;
+    uniforms.uHideClippedLowerMesh.value =
+      isTrouserMesh && mask.hideUpperTrouserMeshes ? 1.0 : 0.0;
+    uniforms.uIsShortBottom.value = shortGarmentKind === 'shorts' ? 1.0 : 0.0;
+    uniforms.uIsShortSkirt.value = shortGarmentKind === 'skirt' ? 1.0 : 0.0;
+    uniforms.uShortBottomHemY.value = shortBottomHemMeters;
+    uniforms.uCanRevealLegUnderlay.value =
+      isTrouserMesh && shortGarmentKind !== null && hasSkinnedLegUnderlay
+        ? 1.0
+        : 0.0;
+
+    if (shortGarmentKind === 'shorts') {
+      uniforms.uEnableTrouserKey.value = 1.0;
+    }
+  }
+}
+
 export interface LoadedCostumeModel {
   status: 'loaded';
   modelId: string;
@@ -153,6 +225,7 @@ export interface LoadedCostumeModel {
     trouserHex?: string;
     enableTrouserKey?: boolean;
   }) => void;
+  setGarmentSway: (amount: number) => void;
   updatePatternUniforms: (params: {
     patternId: PatternId;
     hoaTietHex: string;
@@ -914,7 +987,10 @@ function attachHueKeyShaderToClothMaterial(
     uOuterHemMaskY: { value: 0.24 },
     uHideClippedLowerMesh: { value: 1.0 },
     uIsShortBottom: { value: 0.0 },
+    uIsShortSkirt: { value: 0.0 },
     uShortBottomHemY: { value: 0.62 },
+    uCanRevealLegUnderlay: { value: 0.0 },
+    uGarmentSway: { value: 0.0 },
   };
 
   material.userData.recolorUniforms = uniforms;
@@ -957,7 +1033,10 @@ function attachHueKeyShaderToClothMaterial(
     shader.uniforms.uOuterHemMaskY = uniforms.uOuterHemMaskY;
     shader.uniforms.uHideClippedLowerMesh = uniforms.uHideClippedLowerMesh;
     shader.uniforms.uIsShortBottom = uniforms.uIsShortBottom;
+    shader.uniforms.uIsShortSkirt = uniforms.uIsShortSkirt;
     shader.uniforms.uShortBottomHemY = uniforms.uShortBottomHemY;
+    shader.uniforms.uCanRevealLegUnderlay = uniforms.uCanRevealLegUnderlay;
+    shader.uniforms.uGarmentSway = uniforms.uGarmentSway;
 
     // Pass object-space position/normal and normalized world-space Y (0..1.75m) without splitting UV/normal seams
     shader.vertexShader =
@@ -965,6 +1044,7 @@ function attachHueKeyShaderToClothMaterial(
       varying vec3 vVpObjPos;
       varying vec3 vVpObjNormal;
       varying float vVpWorldY;
+      uniform float uGarmentSway;
       ` + shader.vertexShader;
 
     shader.vertexShader = shader.vertexShader.replace(
@@ -974,6 +1054,10 @@ function attachHueKeyShaderToClothMaterial(
       vVpObjPos = position;
       vVpObjNormal = normal;
       vVpWorldY = (modelMatrix * vec4(transformed, 1.0)).y;
+      float vpGarmentHemWeight = 1.0 - smoothstep(0.46, 1.12, vVpWorldY);
+      float vpGarmentEdgeWeight = smoothstep(0.035, 0.24, abs(position.x));
+      float vpGarmentFlutter = 0.68 + 0.32 * sin(vVpWorldY * 12.0 + uGarmentSway * 3.0);
+      transformed.x += uGarmentSway * 0.014 * vpGarmentHemWeight * vpGarmentEdgeWeight * vpGarmentFlutter;
       `
     );
 
@@ -1017,7 +1101,9 @@ function attachHueKeyShaderToClothMaterial(
       uniform float uOuterHemMaskY;
       uniform float uHideClippedLowerMesh;
       uniform float uIsShortBottom;
+      uniform float uIsShortSkirt;
       uniform float uShortBottomHemY;
+      uniform float uCanRevealLegUnderlay;
 
       vec3 vstylist_rgb2hsv(vec3 c) {
         vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -1132,14 +1218,16 @@ function attachHueKeyShaderToClothMaterial(
           if (uHideClippedLowerMesh > 0.5 && vVpWorldY > uOuterHemMaskY + 0.015) {
             discard;
           }
-          if (uIsShortBottom > 0.5 && vpAnkleShoeMask > 0.01 && vVpWorldY < uShortBottomHemY) {
-            // Below short jeans / miniskirt hemline (and when outer tunic is longer than shorts),
-            // expose natural 3D cylindrical human thigh/calf skin instead of long trousers!
-            float cylN = clamp(abs(normalize(vVpObjNormal).z) * 0.55 + 0.45, 0.45, 1.0);
-            float hemShadow = smoothstep(uOuterHemMaskY - 0.055, uOuterHemMaskY, vVpWorldY);
-            float skinShade = (0.76 + 0.24 * cylN) * (1.0 - 0.14 * hemShadow);
-            vec3 bareSkinRgb = vec3(0.91, 0.75, 0.65) * skinShade;
-            diffuseColor.rgb = mix(diffuseColor.rgb, bareSkinRgb, vpAnkleShoeMask);
+          if ((uIsShortBottom > 0.5 || uIsShortSkirt > 0.5) && vpAnkleShoeMask > 0.01 && vVpWorldY < uShortBottomHemY) {
+            if (uCanRevealLegUnderlay > 0.5) {
+              discard;
+            } else if (uIsShortBottom > 0.5) {
+              float cylN = clamp(abs(normalize(vVpObjNormal).z) * 0.55 + 0.45, 0.45, 1.0);
+              float hemShadow = smoothstep(uOuterHemMaskY - 0.055, uOuterHemMaskY, vVpWorldY);
+              float skinShade = (0.76 + 0.24 * cylN) * (1.0 - 0.14 * hemShadow);
+              vec3 bareSkinRgb = vec3(0.91, 0.75, 0.65) * skinShade;
+              diffuseColor.rgb = mix(diffuseColor.rgb, bareSkinRgb, vpAnkleShoeMask);
+            }
           } else if (uEnableTrouserKey > 0.5 && isDefaultWhiteTrouserTarget < 0.5 && vpAnkleShoeMask > 0.01) {
             float newSat = clamp(uTrouserTargetSat, 0.0, 1.0);
             float tRawRatio = origV / 0.78;
@@ -1448,13 +1536,7 @@ function configureModelMaterialsAndRecolor(
 
     const meshNameLower = (mesh.name || '').toLowerCase();
     const isButtonMesh = meshNameLower.includes('button');
-    const isTrouserMesh =
-      meshNameLower.includes('trouser') ||
-      meshNameLower.includes('pant') ||
-      meshNameLower.includes('quan') ||
-      meshNameLower.includes('skirt') ||
-      meshNameLower.includes('thuong') ||
-      meshNameLower.includes('bottom');
+    const isTrouserMesh = isLowerGarmentLabel(meshNameLower);
     const isSkinOrHairOrEye =
       meshNameLower.includes('head') ||
       meshNameLower.includes('face') ||
@@ -2154,6 +2236,15 @@ export async function loadSuppliedCostumeGlb(params: {
     }
   };
 
+  const setGarmentSway = (amount: number) => {
+    const sway = Math.max(-1, Math.min(1, amount));
+    for (const uniforms of recolorUniformSets) {
+      if (uniforms.uIsTrouserMesh.value < 0.5) {
+        uniforms.uGarmentSway.value = sway;
+      }
+    }
+  };
+
   const updateFabricNormalAndPbr = (nextFabricId: FabricMaterialId) => {
     const spec = getFabricMaterialSpec(nextFabricId);
     const weaveNorm = getOrCreateFabricWeaveNormalMap(spec, maxAnisotropy);
@@ -2252,11 +2343,8 @@ export async function loadSuppliedCostumeGlb(params: {
   headAnchorGroup.attach(expressionSubGroup);
   headAnchorGroup.attach(headAccessorySubGroup);
 
-  let garmentModSubGroup = new THREE.Group();
-  garmentModSubGroup.name = 'VStylist_GarmentModLayer';
   let footwearSubGroup = new THREE.Group();
   footwearSubGroup.name = 'VStylist_FootwearLayer';
-  characterRigGroup.attach(garmentModSubGroup);
   characterRigGroup.attach(footwearSubGroup);
 
   // Detach & dispose an existing object layer, then attach a freshly built layer via Three.js .attach()
@@ -2341,6 +2429,7 @@ export async function loadSuppliedCostumeGlb(params: {
   const nativeHairMaterials: THREE.MeshStandardMaterial[] = [];
   const nativeMorphMeshes: THREE.Mesh[] = [];
   const nativeFootwearMeshes: THREE.Mesh[] = [];
+  let hasSkinnedLegUnderlay = false;
   const lowerGarmentMeshes: { mesh: THREE.Mesh; maxLocalY: number; minLocalY: number }[] = [];
   const classifiedBones: { bone: THREE.Object3D; zone: HierarchicalBoneZone }[] = [];
   clonedScene.traverse((obj) => {
@@ -2379,6 +2468,20 @@ export async function loadSuppliedCostumeGlb(params: {
     const m = obj as THREE.Mesh;
     if (!m.isMesh) return;
     const nameLower = (m.name || '').toLowerCase();
+    const materialNames = (Array.isArray(m.material) ? m.material : [m.material])
+      .map((material) => material?.name?.toLowerCase() || '')
+      .join(' ');
+    const isLowerGarmentMesh = isLowerGarmentLabel(
+      `${nameLower} ${materialNames}`
+    );
+    if (
+      !isLowerGarmentMesh &&
+      /(body|skin|leg|thigh|calf|shin|tibia)/.test(
+        `${nameLower} ${materialNames}`
+      )
+    ) {
+      hasSkinnedLegUnderlay = true;
+    }
     if (nameLower.includes('hair') || nameLower.includes('toc')) {
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       mats.forEach((mat) => {
@@ -2386,15 +2489,7 @@ export async function loadSuppliedCostumeGlb(params: {
         if (std?.color) nativeHairMaterials.push(std);
       });
     }
-    if (
-      nameLower.includes('trouser') ||
-      nameLower.includes('pant') ||
-      nameLower.includes('quan') ||
-      nameLower.includes('skirt') ||
-      nameLower.includes('short') ||
-      nameLower.includes('thuong') ||
-      nameLower.includes('bottom')
-    ) {
+    if (isLowerGarmentMesh) {
       m.geometry?.computeBoundingBox?.();
       const bb = m.geometry?.boundingBox;
       lowerGarmentMeshes.push({
@@ -2451,6 +2546,8 @@ export async function loadSuppliedCostumeGlb(params: {
     necklineCut?: NecklineCutId;
     hemLengthCut?: HemLengthCutId;
   }) => {
+    void nextTrouserHex;
+
     // Sync headAnchorGroup to skeletal headBone if present and animated
     if (headBone) {
       const boneWorldPos = new THREE.Vector3();
@@ -2652,31 +2749,16 @@ export async function loadSuppliedCostumeGlb(params: {
         boneMask.maskedZones[entry.zone];
     }
 
-    const isShortBottom =
-      nextBottomId === 'quan-short-jeans-cat-ngan' ||
-      nextBottomId === 'chan-vay-ngan-miniskirt';
-    const shortBottomHemMeters =
-      nextBottomId === 'quan-short-jeans-cat-ngan' ? 0.64 : 0.6;
+    applyHierarchicalBoneMaskUniforms(
+      recolorUniformSets,
+      boneMask,
+      nextBottomId,
+      hasSkinnedLegUnderlay
+    );
 
-    for (const u of recolorUniformSets) {
-      u.uOuterHemMaskY.value = boneMask.outerHemHeightMeters;
-      u.uHideClippedLowerMesh.value = 0.0;
-      u.uIsShortBottom.value = isShortBottom ? 1.0 : 0.0;
-      u.uShortBottomHemY.value = shortBottomHemMeters;
-      if (isShortBottom) {
-        u.uEnableTrouserKey.value = 1.0;
-      }
-    }
-
-    const garmentModKey = `${boneMask.costumeId}|${nextBottomId}|${nextTrouserHex}`;
+    const garmentModKey = `${boneMask.costumeId}|${nextBottomId}`;
     if (garmentModKey !== lastGarmentModKey) {
       lastGarmentModKey = garmentModKey;
-      garmentModSubGroup = replaceAttachedLayer(
-        characterRigGroup,
-        garmentModSubGroup,
-        'VStylist_GarmentModLayer',
-        true
-      );
 
       // Update lower garment mesh PBR Roughness, Metallic, Sheen, Anisotropy & Normal Map to match real trouser fabric
       const trouserPbr = getTrouserPbrProfile(nextBottomId);
@@ -2725,7 +2807,6 @@ export async function loadSuppliedCostumeGlb(params: {
               );
               uSet.uEnvMapIntensity.value = trouserPbr.envMapIntensity;
             }
-            physMat.needsUpdate = true;
           }
         }
       }
@@ -2767,6 +2848,7 @@ export async function loadSuppliedCostumeGlb(params: {
     calibratedBaseHueDeg,
     calibratedTrouserHueDeg,
     updateRecolorUniforms,
+    setGarmentSway,
     updatePatternUniforms,
     updateFabricNormalAndPbr,
     updateCharacterAppearance,

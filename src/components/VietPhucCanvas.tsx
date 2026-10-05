@@ -4,8 +4,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   RotateCcw,
-  ZoomIn,
-  ZoomOut,
   ScrollText,
   ChevronLeft,
   ChevronRight,
@@ -318,12 +316,12 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
   const [recoloredFrames, setRecoloredFrames] = useState<
     [string, string, string, string] | null
   >(null);
-  const [turntableAngleDeg, setTurntableAngleDeg] = useState<number>(0); // continuous 0..360
-  const [turntableZoom, setTurntableZoom] = useState<number>(1.0);
+  const [nearestDiscreteIdx, setNearestDiscreteIdx] = useState<number>(0);
   const [showFaceLoupe, setShowFaceLoupe] = useState<boolean>(false);
   const hasAppearanceMountedRef = useRef<boolean>(false);
   const isDraggingTurntableRef = useRef<boolean>(false);
   const turntableAngleRef = useRef<number>(0);
+  const nearestDiscreteIdxRef = useRef<number>(0);
   const dragLastXRef = useRef<number>(0);
   const dragLastTimeRef = useRef<number>(0);
   const dragVelocityRef = useRef<number>(0);
@@ -337,25 +335,10 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     'loading'
   );
 
-  useEffect(() => {
-    turntableAngleRef.current = turntableAngleDeg;
-  }, [turntableAngleDeg]);
-
   useEffect(() => () => {
     cancelAnimationFrame(anglePublishRafRef.current);
     cancelAnimationFrame(inertiaRafRef.current);
   }, []);
-
-  // Visual Trouser/Bottom fitting transition & procedural styling motion state
-  const [trouserFittingState, setTrouserFittingState] = useState<{
-    isFitting: boolean;
-    bottomName: string;
-    progress: number;
-  }>({ isFitting: false, bottomName: '', progress: 0 });
-  const prevBottomIdRef = useRef<string>(activeBottomId);
-  const prevQuanHexRef = useRef<string>(activeQuanHex);
-  const prevAoHexRef = useRef<string>(activeAoHex);
-  const trouserFittingStartRef = useRef<number>(0);
 
   useEffect(() => {
     lightAngleModeRef.current = lightAngleMode;
@@ -389,18 +372,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     fabricMaterialIdRef.current = fabricMaterialId;
   }, [fabricMaterialId]);
 
-  // Inject rotational inertia impulse into the cloth simulation whenever turntableAngleDeg changes
-  useEffect(() => {
-    const sim = clothSimRef.current;
-    let delta = turntableAngleDeg - sim.prevAngleDeg;
-    if (delta > 180) delta -= 360;
-    if (delta < -180) delta += 360;
-    sim.prevAngleDeg = turntableAngleDeg;
-    if (Math.abs(delta) > 0.05) {
-      triggerClothImpulse(delta);
-    }
-  }, [turntableAngleDeg, triggerClothImpulse]);
-
   useEffect(() => {
     recoloredFramesRef.current = recoloredFrames;
   }, [recoloredFrames]);
@@ -408,61 +379,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
   useEffect(() => {
     viewerModeRef.current = viewerMode;
   }, [viewerMode]);
-
-  // Detect Trouser / Bottom Garment or Color Changes & Trigger Procedural Styling Transition
-  useEffect(() => {
-    // Avoid triggering on first mount before model is loaded
-    if (!hasMountedOnceRef.current) {
-      prevBottomIdRef.current = activeBottomId;
-      prevQuanHexRef.current = activeQuanHex;
-      prevAoHexRef.current = activeAoHex;
-      return;
-    }
-    const isBottomChange =
-      prevBottomIdRef.current !== activeBottomId ||
-      prevQuanHexRef.current !== activeQuanHex;
-    const isAoColorChange = prevAoHexRef.current !== activeAoHex;
-
-    if (isBottomChange || isAoColorChange) {
-      prevBottomIdRef.current = activeBottomId;
-      prevQuanHexRef.current = activeQuanHex;
-      prevAoHexRef.current = activeAoHex;
-      trouserFittingStartRef.current = performance.now();
-
-      const label = isBottomChange
-        ? `${bottomGarment.name} (${activeQuanHex})`
-        : `Màu Áo ${color.name} (${activeAoHex})`;
-
-      setTrouserFittingState({
-        isFitting: true,
-        bottomName: label,
-        progress: 0,
-      });
-
-      // Inject fabric ripple & impulse into cloth physics for realistic fabric settling
-      triggerClothImpulse(18);
-
-      const duration = 880; // ms
-      let animFrameId = 0;
-      const step = () => {
-        const elapsed = performance.now() - trouserFittingStartRef.current;
-        const p = Math.min(1.0, elapsed / duration);
-        setTrouserFittingState((prev) => ({
-          ...prev,
-          progress: p,
-          isFitting: p < 1.0,
-        }));
-        if (p < 1.0) {
-          animFrameId = requestAnimationFrame(step);
-        }
-      };
-      animFrameId = requestAnimationFrame(step);
-
-      return () => {
-        if (animFrameId) cancelAnimationFrame(animFrameId);
-      };
-    }
-  }, [activeBottomId, activeQuanHex, bottomGarment.name, triggerClothImpulse]);
 
   const modelId = `${activeCostumeId}-${activeGender}`;
   const posterUrl =
@@ -704,11 +620,13 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.enablePan = false;
+    controls.enableZoom = false;
     controls.minPolarAngle = Math.PI * 0.2;
     controls.maxPolarAngle = Math.PI * 0.5;
-    controls.minDistance = 1.75;
-    controls.maxDistance = 4.9;
     controls.target.set(0, 1.02, 0);
+    const defaultCameraDistance = camera.position.distanceTo(controls.target);
+    controls.minDistance = defaultCameraDistance;
+    controls.maxDistance = defaultCameraDistance;
     controls.autoRotate = false;
     controls.update();
 
@@ -793,8 +711,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     let prevAzimuth = controls.getAzimuthalAngle();
     let glbSwayAngle = 0;
     let glbSwayVel = 0;
-    let glbFlare = 0;
-    let glbFlareVel = 0;
 
     const animate = () => {
       rafId = requestAnimationFrame(animate);
@@ -808,33 +724,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
       if (dAz > Math.PI) dAz -= Math.PI * 2;
       if (dAz < -Math.PI) dAz += Math.PI * 2;
       prevAzimuth = curAzimuth;
-
-      // Procedural Styling Motion when user changes trousers / bottoms
-      const nowMs = performance.now();
-      const fittingElapsed = nowMs - trouserFittingStartRef.current;
-      const fittingDuration = 880;
-      let fittingWeightShift = 0;
-      let fittingDipY = 0;
-      let fittingTurnY = 0;
-
-      if (fittingElapsed < fittingDuration) {
-        const p = Math.min(1.0, Math.max(0, fittingElapsed / fittingDuration));
-        // Smooth sine bell envelope: 0 at p=0, 1 at p=0.5, 0 at p=1
-        const envelope = Math.sin(p * Math.PI);
-        // Subtle dip down (-0.022m) as knees flex gently to adjust trousers/skirt
-        fittingDipY = -0.022 * envelope;
-        // Subtle turn to side (+/- 0.042 rad) showing the crease and pleats
-        fittingTurnY = Math.sin(p * Math.PI * 2) * 0.042;
-        // Gentle weight shift from hip to hip
-        fittingWeightShift = Math.sin(p * Math.PI * 2) * 0.038;
-
-        // Subtle head tilt down to inspect trousers/skirt, then looking back up
-        if (loadedModelRef.current?.headBone) {
-          loadedModelRef.current.headBone.rotation.x = envelope * 0.07;
-        }
-      } else if (loadedModelRef.current?.headBone) {
-        loadedModelRef.current.headBone.rotation.x = 0;
-      }
 
       if (isPhysicsEnabledRef.current && modelHolderRef.current) {
         const { stiffness, damping, breezeAmp } = getFabricPhysicsParams(
@@ -851,23 +740,11 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
           Math.min(0.14, glbSwayAngle + glbSwayVel * dt)
         );
 
-        glbFlareVel += Math.abs(dAz) * 3.2;
-        glbFlareVel += (-95 * glbFlare - 7.5 * glbFlareVel) * dt;
-        glbFlare = Math.max(0, Math.min(0.08, glbFlare + glbFlareVel * dt));
-
-        modelHolderRef.current.position.y = fittingDipY;
-        modelHolderRef.current.rotation.y = fittingTurnY;
-        modelHolderRef.current.rotation.z = glbSwayAngle + fittingWeightShift;
-        modelHolderRef.current.scale.set(
-          1 + glbFlare,
-          1,
-          1 + glbFlare
-        );
+        modelHolderRef.current.rotation.z = glbSwayAngle * 0.18;
+        loadedModelRef.current?.setGarmentSway(glbSwayAngle / 0.14);
       } else if (modelHolderRef.current) {
-        modelHolderRef.current.position.y = fittingDipY;
-        modelHolderRef.current.rotation.y = fittingTurnY;
-        modelHolderRef.current.rotation.z = fittingWeightShift;
-        modelHolderRef.current.scale.set(1, 1, 1);
+        modelHolderRef.current.rotation.z = 0;
+        loadedModelRef.current?.setGarmentSway(0);
       }
 
       const mode = lightAngleModeRef.current;
@@ -1124,21 +1001,14 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     loadedModelRef.current.updateFabricNormalAndPbr(fabricMaterialId);
   }, [fabricMaterialId]);
 
-  const nearestDiscreteIdx = useMemo(() => {
-    const norm = ((turntableAngleDeg % 360) + 360) % 360;
-    return Math.round(norm / 90) % 4;
-  }, [turntableAngleDeg]);
-
-  // Smooth 3D cylindrical perspective tilt within the current 90° view sector (zero double-exposure ghosting!)
-  const sectorTiltDeg = useMemo(() => {
-    const norm = ((turntableAngleDeg % 360) + 360) % 360;
+  const sectorTiltDeg = (() => {
+    const norm = ((turntableAngleRef.current % 360) + 360) % 360;
     const canonical = nearestDiscreteIdx * 90;
     let diff = norm - canonical;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
-    // Clamp within [-45, 45] and scale to a natural 3D perspective turn [-16deg, +16deg]
     return Math.max(-45, Math.min(45, diff)) * 0.35;
-  }, [turntableAngleDeg, nearestDiscreteIdx]);
+  })();
 
   // Keep refs of garment cuts & character/accessories for granular non-rerendering updates
   const renderJobIdRef = useRef<number>(0);
@@ -1446,6 +1316,49 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     activeHemLengthCut,
   ]);
 
+  const publishTurntableAngle = useCallback(() => {
+    const angle = ((turntableAngleRef.current % 360) + 360) % 360;
+    const frameIndex = Math.round(angle / 90) % 4;
+    if (nearestDiscreteIdxRef.current !== frameIndex) {
+      nearestDiscreteIdxRef.current = frameIndex;
+      setNearestDiscreteIdx(frameIndex);
+    }
+
+    const sim = clothSimRef.current;
+    let delta = angle - sim.prevAngleDeg;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    sim.prevAngleDeg = angle;
+    triggerClothImpulse(delta);
+
+    const canonical = frameIndex * 90;
+    let sectorDelta = angle - canonical;
+    if (sectorDelta > 180) sectorDelta -= 360;
+    if (sectorDelta < -180) sectorDelta += 360;
+    const tilt = Math.max(-45, Math.min(45, sectorDelta)) * 0.35;
+    if (turntableCanvasRef.current) {
+      turntableCanvasRef.current.style.transform = `perspective(1100px) rotateY(${-tilt.toFixed(2)}deg)`;
+    }
+  }, [triggerClothImpulse]);
+
+  const scheduleTurntableAnglePublish = useCallback(() => {
+    if (anglePublishRafRef.current) return;
+    anglePublishRafRef.current = requestAnimationFrame(() => {
+      anglePublishRafRef.current = 0;
+      publishTurntableAngle();
+    });
+  }, [publishTurntableAngle]);
+
+  const handleStepFrame = useCallback((dir: -1 | 1) => {
+    cancelAnimationFrame(inertiaRafRef.current);
+    inertiaRafRef.current = 0;
+    const snapped = Math.round(turntableAngleRef.current / 90) * 90;
+    turntableAngleRef.current = (snapped + dir * 90 + 360) % 360;
+    cancelAnimationFrame(anglePublishRafRef.current);
+    anglePublishRafRef.current = 0;
+    publishTurntableAngle();
+  }, [publishTurntableAngle]);
+
   // 5. Keyboard Left/Right Arrow Key support for stepping frames in 360° viewer
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1455,64 +1368,23 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        setTurntableAngleDeg((prev) => {
-          const snapped = Math.round(prev / 90) * 90;
-          return (snapped - 90 + 360) % 360;
-        });
+        handleStepFrame(-1);
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        setTurntableAngleDeg((prev) => {
-          const snapped = Math.round(prev / 90) * 90;
-          return (snapped + 90) % 360;
-        });
+        handleStepFrame(1);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [viewerMode]);
-
-  const handleStepFrame = useCallback((dir: -1 | 1) => {
-    cancelAnimationFrame(inertiaRafRef.current);
-    inertiaRafRef.current = 0;
-    setTurntableAngleDeg((prev) => {
-      const snapped = Math.round(prev / 90) * 90;
-      const next = (snapped + dir * 90 + 360) % 360;
-      turntableAngleRef.current = next;
-      return next;
-    });
-  }, []);
-
-  const handleZoom = useCallback(
-    (delta: number) => {
-      if (viewerMode === 'turntable') {
-        setTurntableZoom((z) =>
-          Math.min(1.45, Math.max(0.8, Number((z - delta * 0.35).toFixed(2))))
-        );
-        return;
-      }
-      const camera = cameraRef.current;
-      const controls = controlsRef.current;
-      if (!camera || !controls) return;
-      const dir = new THREE.Vector3()
-        .subVectors(camera.position, controls.target)
-        .normalize();
-      const curDist = camera.position.distanceTo(controls.target);
-      const nextDist = Math.min(
-        controls.maxDistance,
-        Math.max(controls.minDistance, curDist + delta)
-      );
-      camera.position.copy(controls.target).addScaledVector(dir, nextDist);
-      controls.update();
-    },
-    [viewerMode]
-  );
+  }, [viewerMode, handleStepFrame]);
 
   const handleResetView = useCallback(() => {
     cancelAnimationFrame(inertiaRafRef.current);
     inertiaRafRef.current = 0;
-    setTurntableAngleDeg(0);
     turntableAngleRef.current = 0;
-    setTurntableZoom(1.0);
+    cancelAnimationFrame(anglePublishRafRef.current);
+    anglePublishRafRef.current = 0;
+    publishTurntableAngle();
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (!camera || !controls) return;
@@ -1520,7 +1392,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     camera.position.set(0, 1.12, 3.85);
     controls.autoRotate = false;
     controls.update();
-  }, []);
+  }, [publishTurntableAngle]);
 
   const handleExportDesignSnapshot = useCallback(() => {
     const dataUrl = getDesignSnapshot();
@@ -1711,9 +1583,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
 
   const handleTurntablePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     cancelAnimationFrame(inertiaRafRef.current);
-    cancelAnimationFrame(anglePublishRafRef.current);
     inertiaRafRef.current = 0;
-    anglePublishRafRef.current = 0;
     isDraggingTurntableRef.current = true;
     dragLastXRef.current = event.clientX;
     dragLastTimeRef.current = performance.now();
@@ -1731,14 +1601,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     dragLastXRef.current = event.clientX;
     dragLastTimeRef.current = now;
     turntableAngleRef.current = ((turntableAngleRef.current + deltaAngle) % 360 + 360) % 360;
-
-    // Pointer devices can emit more events than the display can paint. Publish at most once per frame.
-    if (!anglePublishRafRef.current) {
-      anglePublishRafRef.current = requestAnimationFrame(() => {
-        anglePublishRafRef.current = 0;
-        setTurntableAngleDeg(turntableAngleRef.current);
-      });
-    }
+    scheduleTurntableAnglePublish();
   };
 
   const handleTurntablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1756,7 +1619,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
       previousTime = now;
       dragVelocityRef.current *= Math.exp(-elapsed / 260);
       turntableAngleRef.current = ((turntableAngleRef.current + dragVelocityRef.current * elapsed) % 360 + 360) % 360;
-      setTurntableAngleDeg(turntableAngleRef.current);
+      scheduleTurntableAnglePublish();
       if (Math.abs(dragVelocityRef.current) > 0.012) {
         inertiaRafRef.current = requestAnimationFrame(coast);
       } else {
@@ -1768,7 +1631,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     if (!prefersReducedMotion && Math.abs(dragVelocityRef.current) > 0.04) {
       inertiaRafRef.current = requestAnimationFrame(coast);
     } else {
-      setTurntableAngleDeg(turntableAngleRef.current);
+      scheduleTurntableAnglePublish();
     }
   };
 
@@ -2023,7 +1886,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
         {viewerMode === 'glb' && (
           <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 bg-[#FBF9F5]/85 backdrop-blur-sm border border-[#DFD8C8]/80 px-2.5 py-1 text-[10px] text-[#57534E] pointer-events-none">
             <Compass className="w-3.5 h-3.5 text-[#9A3412]" />
-            <span>Kéo để xoay · cuộn để phóng to</span>
+            <span>Kéo để xoay</span>
           </div>
         )}
 
@@ -2034,11 +1897,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
             onPointerMove={handleTurntablePointerMove}
             onPointerUp={handleTurntablePointerUp}
             onPointerCancel={handleTurntablePointerUp}
-            onWheel={(event) => {
-              if (event.deltaY === 0) return;
-              event.preventDefault();
-              handleZoom(event.deltaY > 0 ? 0.6 : -0.6);
-            }}
             role="group"
             aria-label="Mẫu cổ phục 360 độ. Kéo ngang để xoay, dùng phím mũi tên để đổi góc."
             className="relative w-full h-full flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-pan-y overflow-hidden transition-opacity duration-300"
@@ -2046,10 +1904,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
             {/* 3D Studio Turntable Stage with Dynamic Floor Pedestal & Single Crisp Active Pose (zero ghosting) */}
             <div
               className="relative flex items-center justify-center w-full h-full max-h-[540px]"
-              style={{
-                transform: `scale(${turntableZoom})`,
-                transition: 'transform 150ms ease-out',
-              }}
             >
               {/* Subtle Studio Key/Rim Radial Illumination on the #F2EDE4 Backdrop */}
               <div
@@ -2118,43 +1972,9 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
             </div>
             <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 bg-[#FBF9F5]/85 backdrop-blur-sm border border-[#DFD8C8]/80 px-2.5 py-1 text-[10px] text-[#57534E] pointer-events-none">
               <Compass className="w-3.5 h-3.5 text-[#9A3412]" />
-              <span>Kéo để xoay · cuộn để phóng to</span>
+              <span>Kéo để xoay</span>
             </div>
           </div>
-        )}
-
-        {/* Visual Trouser/Bottom Transition & Procedural Styling Gesture Indicator */}
-        {trouserFittingState.isFitting && (
-          <>
-            {/* Subtle radial silk aura around the lower garment region */}
-            <div
-              className="absolute inset-x-0 bottom-[14%] h-[38%] pointer-events-none z-15 flex items-center justify-center transition-opacity duration-300"
-              style={{
-                opacity: Math.sin(trouserFittingState.progress * Math.PI) * 0.72,
-              }}
-            >
-              <div className="w-72 h-36 rounded-full bg-gradient-to-t from-[#B45309]/15 via-[#FDE68A]/12 to-transparent blur-xl" />
-            </div>
-
-            {/* Floating Glassmorphic Styling Badge */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none transition-all duration-200">
-              <div className="bg-[#1C1917]/92 text-[#FBF9F5] backdrop-blur-md px-3.5 py-1.5 border border-[#DFD8C8]/30 shadow-md flex items-center gap-2 text-xs">
-                <span className="w-2 h-2 rounded-full bg-[#EAB308] animate-ping" />
-                <Sparkles className="w-3.5 h-3.5 text-[#FDE68A] animate-spin" />
-                <span className="font-editorial text-[13px] tracking-wide text-[#FBF9F5]">
-                  Đang chỉnh trang {trouserFittingState.bottomName}...
-                </span>
-                <div className="w-14 h-1 bg-[#44403C] overflow-hidden ml-1 border border-white/10">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#D97706] to-[#FDE68A] transition-all duration-75"
-                    style={{
-                      width: `${Math.round(trouserFittingState.progress * 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
         )}
 
         {/* LOADING STATE: Poster (/public/models/{id}.jpg or front frame) + Progress Bar */}
@@ -2461,26 +2281,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
           >
             <Upload className="w-3 h-3 text-[#9A3412]" />
             <span className="hidden sm:inline">Nạp tệp GLB từ máy</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleZoom(-0.4)}
-            disabled={viewerMode === 'missing' || viewerMode === 'loading'}
-            className="p-1.5 border border-[#DFD8C8] bg-[#F5F1E8] hover:bg-[#1C1917] hover:text-[#FBF9F5] transition-colors cursor-pointer disabled:opacity-40"
-            title="Phóng to (Zoom In)"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleZoom(0.4)}
-            disabled={viewerMode === 'missing' || viewerMode === 'loading'}
-            className="p-1.5 border border-[#DFD8C8] bg-[#F5F1E8] hover:bg-[#1C1917] hover:text-[#FBF9F5] transition-colors cursor-pointer disabled:opacity-40"
-            title="Thu nhỏ (Zoom Out)"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
           </button>
 
           <button
