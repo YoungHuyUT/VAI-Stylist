@@ -1,0 +1,74 @@
+{
+  "xanh-co-vit": {
+    "id": "xanh-co-vit",
+    "name": "Xanh Cổ Vịt",
+    "hex": "#134E4A",
+    "meaning": "Sắc xanh sâu lắng đại diện cho sự thanh tịnh, mực thước, an yên và trí tuệ nho nhã.",
+    "occasions": ["Đi Lễ Chùa", "Hội Thảo Văn Hóa", "Dạo Phố Cổ"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "do-son": {
+    "id": "do-son",
+    "name": "Đỏ Son",
+    "hex": "#9A2B1D",
+    "meaning": "Sắc đỏ truyền thống tượng trưng cho điềm lành cát tường, vinh hoa phú quý và đại hỷ.",
+    "occasions": ["Hôn Lễ Truyền Thống", "Chụp Ảnh Kỷ Yếu"],
+    "sources": ["src-kddn-hdsl"],
+    "verified": true
+  },
+  "vang-hoang-yen": {
+    "id": "vang-hoang-yen",
+    "name": "Vàng Hoàng Yến",
+    "hex": "#D4AF37",
+    "meaning": "Sắc vàng ánh kim tượng trưng cho quyền quý, sự rực rỡ và đức độ bao dung.",
+    "occasions": ["Lễ Hội Cung Đình", "Hôn Lễ Truyền Thống"],
+    "sources": ["src-kddn-hdsl"],
+    "verified": true
+  },
+  "lam-tram": {
+    "id": "lam-tram",
+    "name": "Lam Chàm",
+    "hex": "#1E3A8A",
+    "meaning": "Sắc chàm bền bỉ chiết xuất từ lá chàm tự nhiên, thể hiện lòng kiên định và phong thái đĩnh đạc.",
+    "occasions": ["Hội Thảo Văn Hóa", "Đi Lễ Chùa"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "tim-hue": {
+    "id": "tim-hue",
+    "name": "Tím Huế",
+    "hex": "#581C87",
+    "meaning": "Màu hoa cà dịu ngọt gợi nhớ nét thơ mộng xứ kinh kỳ, sự thủy chung và trang nhã thầm kín.",
+    "occasions": ["Dạo Phố Cổ", "Chụp Ảnh Kỷ Yếu"],
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  "trang-nga": {
+    "id": "trang-nga",
+    "name": "Trắng Ngà Lụa",
+    "hex": "#F5F1E8",
+    "meaning": "Sắc trắng nguyên bản của tơ tằm dệt tay chưa nhuộm hóa chất, thuần khiết và thanh tân.",
+    "occasions": ["Đi Lễ Chùa", "Dạo Phố Cổ", "Hôn Lễ Truyền Thống"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "den-linh": {
+    "id": "den-linh",
+    "name": "Đen Lĩnh Lụa",
+    "hex": "#181513",
+    "meaning": "Sắc đen bóng của Lĩnh Bưởi nhuộm củ nâu và phù sa sông Hồng, tượng trưng cho sự trang nghiêm cổ kính.",
+    "occasions": ["Hội Thảo Văn Hóa", "Nghi Lễ Tế Đền"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "hong-canh-sen": {
+    "id": "hong-canh-sen",
+    "name": "Hồng Cánh Sen",
+    "hex": "#BE185D",
+    "meaning": "Màu hoa sen hé nở đầu hạ, tượng trưng cho nét đẹp thanh tao xuất trần của thiếu nữ Việt.",
+    "occasions": ["Chụp Ảnh Kỷ Yếu", "Dạo Phố Cổ"],
+    "sources": [],
+    "verified": false
+  }
+}

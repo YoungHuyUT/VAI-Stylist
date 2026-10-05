@@ -1,0 +1,6 @@
+{
+  "name": "VAI-Stylist 3D — Cố Vấn Cổ Phục Việt & Định Hình Phong Cách",
+  "description": "Hệ thống trí tuệ nhân tạo thẩm định thẩm mỹ, kiểm duyệt quy chuẩn văn hóa Việt Phục (Áo Ngũ Thân, Nhật Bình, Áo Tấc) và gợi ý phối đồ giao thoa thế hệ mới theo thời tiết và sự kiện.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

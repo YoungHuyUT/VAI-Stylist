@@ -1,0 +1,50 @@
+[
+  {
+    "id": "lore-ngu-than-five-virtues",
+    "costumeId": "ao-ngu-than-tay-chen",
+    "title": "Ý Nghĩa Năm Thân & Ngũ Thường",
+    "text": "Áo ngũ thân ghép từ năm mảnh lụa: hai thân trước, hai thân sau đại diện cho tứ thân phụ mẫu (cha mẹ đẻ và cha mẹ chồng/vợ), và thân con thứ năm nằm kín đáo bên trong đại diện cho chính bản thân người mặc được gia đình chở che. Năm hạt khuy đại diện cho ngũ thường: Nhân, Lễ, Nghĩa, Trí, Tín.",
+    "sources": ["src-nn-aomu", "src-dntl"],
+    "verified": true
+  },
+  {
+    "id": "lore-nhat-binh-collar",
+    "costumeId": "ao-nhat-binh",
+    "title": "Dải Cổ Nhật Bình Hoàng Tộc",
+    "text": "Tên gọi 'Nhật Bình' xuất phát từ dải cổ áo khoét hình chữ nhật phẳng lặng chạy dài trước ngực. Hoa văn trên cổ áo được thêu kim tuyến tỉ mỉ theo cấp bậc: Hoàng hậu thêu rồng phượng, Công chúa thêu loan phụng, kết hợp dải ngũ sắc nơi cửa tay tượng trưng cho Ngũ hành tương sinh.",
+    "sources": ["src-nn-aomu", "src-kddn-hdsl"],
+    "verified": true
+  },
+  {
+    "id": "lore-ao-tac-ceremonial",
+    "costumeId": "ao-tac",
+    "title": "Lễ Phục Quốc Dân Thời Nguyễn",
+    "text": "Áo Tấc còn gọi là áo Thụ Ty (tay thụng). Hai tay áo dài và rộng, khi hành lễ người mặc chắp tay kín đáo phía trước, tà áo rủ chấm gối tạo nên phong thái ung dung, đĩnh đạc và hết mực tôn nghiêm trong các nghi thức giao tế Nho gia.",
+    "sources": ["src-nn-aomu", "src-kddn-hdsl"],
+    "verified": true
+  },
+  {
+    "id": "lore-giao-linh-le-dynasty",
+    "costumeId": "ao-giao-linh",
+    "title": "Cổ Phong Thời Lê Trung Hưng",
+    "text": "Áo Giao Lĩnh với vạt chéo đè sang phải là thức trang phục cổ xưa bậc nhất của văn minh Đại Việt. Tranh tượng thế kỷ 17–18 cho thấy các bậc học giả, văn nhân thời Lê luôn khoác áo Giao Lĩnh bên trong hoặc ngoài cùng dải đai buông thướt tha.",
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  {
+    "id": "lore-tu-than-kinh-bac",
+    "costumeId": "ao-tu-than-kinh-bac",
+    "title": "Nón Quai Thao & Dải Yếm Đào",
+    "text": "Áo Tứ Thân gắn liền với không gian diễn xướng Dân ca Quan họ Bắc Ninh. Bốn vạt áo tượng trưng cho đức tính chịu thương chịu khó của người phụ nữ nông thôn Việt Nam. Hai vạt trước buộc nơ trước bụng, bên trong lấp ló mép yếm đào tạo nét duyên thầm e ấp.",
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  {
+    "id": "lore-ba-ba-river",
+    "costumeId": "ao-ba-ba-nam-bo",
+    "title": "Chiếc Áo Bà Ba Sông Nước",
+    "text": "Xuất hiện phổ biến từ thế kỷ 19 ở đồng bằng sông Cửu Long, chiếc áo bà ba tối giản không cúc cầu kỳ, tà áo xẻ hai bên hông tạo sự thoáng mát trên ghe xuồng và đồng ruộng, trở thành biểu tượng cho sự đôn hậu, hào sảng phương Nam.",
+    "sources": [],
+    "verified": false
+  }
+]

@@ -1,0 +1,161 @@
+{
+  "ao-ngu-than-tay-chen": {
+    "id": "ao-ngu-than-tay-chen",
+    "name": "Áo Ngũ Thân Tay Chẽn",
+    "era": "Triều Nguyễn (1802–1945)",
+    "region": "trung",
+    "genders": ["male", "female"],
+    "features": [
+      "Phom áo năm thân tượng trưng cho tứ thân phụ mẫu và chính bản thân người mặc",
+      "Cổ đứng tròn (lập lĩnh) cao khoảng 3–4 cm kín đáo",
+      "Năm chiếc khuy cài bên nách phải tượng trưng cho ngũ thường (Nhân - Lễ - Nghĩa - Trí - Tín)",
+      "Tay áo may ôm vừa vặn từ khuỷu tay đến cổ tay (tay chẽn) tiện hoạt động"
+    ],
+    "meaning": "Biểu tượng cho chuẩn mực Nho nhã, sự khiêm nhường, đạo làm con và sự hòa hợp giữa gia đình với xã hội.",
+    "occasions": ["Đi Lễ Chùa", "Hôn Lễ Truyền Thống", "Chụp Ảnh Kỷ Yếu", "Dạo Phố Cổ", "Hội Thảo Văn Hóa"],
+    "defaultColors": {
+      "main": "#134E4A",
+      "bottom": "#F5F1E8"
+    },
+    "allowedPatternIds": ["pattern_may_co", "pattern_chim_lac", "pattern_song_nuoc", "none"],
+    "allowedAccessoryIds": ["acc-khan-dong", "acc-hai-theu", "acc-quat-tram"],
+    "sources": ["src-nn-aomu", "src-dntl"],
+    "verified": true
+  },
+  "ao-nhat-binh": {
+    "id": "ao-nhat-binh",
+    "name": "Áo Nhật Bình Hoàng Cung",
+    "era": "Triều Nguyễn (1802–1945)",
+    "region": "trung",
+    "genders": ["female"],
+    "features": [
+      "Dải viền cổ áo hình chữ nhật đặc trưng chạy dọc trước ngực ghép hoa văn ngũ sắc",
+      "Tay áo đính dải ngũ hành đại diện cho ngũ phương trời đất",
+      "Vạt áo xẻ trước cài khuy ngọc hoặc kim loại quý",
+      "Khoác ngoài phối cùng Thường Lụa hoặc Quần Lụa ống rộng"
+    ],
+    "meaning": "Lễ phục tôn quý dành cho Hoàng hậu, Công chúa và mệnh phụ triều đình, thể hiện đức hạnh và sự trang nghiêm hoàng gia.",
+    "occasions": ["Hôn Lễ Truyền Thống", "Lễ Hội Cung Đình", "Nghi Lễ Tế Đền", "Chụp Ảnh Kỷ Yếu"],
+    "defaultColors": {
+      "main": "#9A2B1D",
+      "bottom": "#F8FAFC"
+    },
+    "allowedPatternIds": ["pattern_chim_lac", "pattern_song_nuoc", "pattern_cuc_day", "none"],
+    "allowedAccessoryIds": ["acc-khan-vanh", "acc-kieng-bac", "acc-hai-theu"],
+    "sources": ["src-nn-aomu", "src-kddn-hdsl"],
+    "verified": true
+  },
+  "ao-tac": {
+    "id": "ao-tac",
+    "name": "Áo Tấc (Áo Thụ Tay Dài)",
+    "era": "Triều Nguyễn (1802–1945)",
+    "region": "trung",
+    "genders": ["male", "female"],
+    "features": [
+      "Vạt áo rộng thụng may dài quá gối, kết cấu năm thân",
+      "Hai ống tay thụng thụng dài chấm gối (rộng 1 tấc xưa ~ 30-40cm) uyển chuyển",
+      "Khi hành lễ hai tay khoanh trước bụng tạo phong thái ung dung, kính cẩn",
+      "Cổ đứng tròn gài 5 khuy bên phải trang nhã"
+    ],
+    "meaning": "Lễ phục trang trọng bậc nhất dùng trong các dịp đại lễ, cúng tế tổ tiên, mừng thọ và hôn lễ.",
+    "occasions": ["Hôn Lễ Truyền Thống", "Đi Lễ Chùa", "Nghi Lễ Tế Đền", "Hội Thảo Văn Hóa"],
+    "defaultColors": {
+      "main": "#D4AF37",
+      "bottom": "#F5F1E8"
+    },
+    "allowedPatternIds": ["pattern_may_co", "pattern_song_nuoc", "pattern_cuc_day", "none"],
+    "allowedAccessoryIds": ["acc-khan-dong", "acc-kieng-bac", "acc-quat-tram"],
+    "sources": ["src-nn-aomu", "src-kddn-hdsl"],
+    "verified": true
+  },
+  "ao-giao-linh": {
+    "id": "ao-giao-linh",
+    "name": "Áo Giao Lĩnh (Cổ Chéo)",
+    "era": "Thời Lê Trung Hưng (1533–1789)",
+    "region": "bac",
+    "genders": ["male", "female"],
+    "features": [
+      "Hai vạt cổ áo vắt chéo nhau trước ngực (vạt trái đè lên vạt phải)",
+      "Tay áo thụng rộng hoặc tay thường mang hơi thở cổ phong Bắc Bộ",
+      "Thường thắt dải đai lưng lụa thả dài buông rủ tha thướt"
+    ],
+    "meaning": "Trang phục cổ phong lâu đời của Đại Việt, biểu tượng cho phong thái tiêu dao, nho nhã và học thức.",
+    "occasions": ["Chụp Ảnh Kỷ Yếu", "Dạo Phố Cổ", "Hội Thảo Văn Hóa"],
+    "defaultColors": {
+      "main": "#1E3A8A",
+      "bottom": "#F5F1E8"
+    },
+    "allowedPatternIds": ["pattern_may_co", "pattern_song_nuoc", "none"],
+    "allowedAccessoryIds": ["acc-dai-lung-lua", "acc-quat-tram"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "ao-tu-than-kinh-bac": {
+    "id": "ao-tu-than-kinh-bac",
+    "name": "Áo Tứ Thân Kinh Bắc",
+    "era": "Dân gian Bắc Bộ (Thế kỷ 18–20)",
+    "region": "bac",
+    "genders": ["female"],
+    "features": [
+      "Bốn vạt áo buông rủ, hai vạt trước buộc nơ duyên dáng trước bụng",
+      "Phía trong khoác Yếm đào và áo cánh màu sáng",
+      "Đội Nón Quai Thao ba tầm gắn quai thao đen huyền thoại",
+      "Thắt lưng lụa hồng đào đung đưa theo nhịp bước"
+    ],
+    "meaning": "Hồn cốt của người con gái Quan họ Kinh Bắc tảo tần, dịu dàng, khéo léo và giàu tình cảm.",
+    "occasions": ["Hát Quan Họ", "Dạo Phố Cổ", "Chụp Ảnh Kỷ Yếu", "Đi Lễ Chùa"],
+    "defaultColors": {
+      "main": "#6B21A8",
+      "bottom": "#1C1917"
+    },
+    "allowedPatternIds": ["pattern_may_co", "none"],
+    "allowedAccessoryIds": ["acc-non-quai-thao", "acc-yem-dao", "acc-guoc-moc"],
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  "ao-vien-linh": {
+    "id": "ao-vien-linh",
+    "name": "Áo Viên Lĩnh (Cổ Tròn)",
+    "era": "Thời Lý - Trần (1009–1400)",
+    "region": "bac",
+    "genders": ["male", "female"],
+    "features": [
+      "Cổ áo khoét tròn ôm sát chân cổ (viên lĩnh)",
+      "Vạt áo đắp chéo gài khuy bên vai phải",
+      "Tay áo rộng thoáng thể hiện phong khí hào hùng Đông A"
+    ],
+    "meaning": "Tượng trưng cho tinh thần khoáng đạt, tự chủ và văn minh phục sức thời kỳ thịnh trị Lý - Trần.",
+    "occasions": ["Hội Thảo Văn Hóa", "Chụp Ảnh Kỷ Yếu"],
+    "defaultColors": {
+      "main": "#15803D",
+      "bottom": "#F5F1E8"
+    },
+    "allowedPatternIds": ["pattern_may_co", "pattern_chim_lac", "none"],
+    "allowedAccessoryIds": ["acc-khan-dong"],
+    "sources": [],
+    "verified": false
+  },
+  "ao-ba-ba-nam-bo": {
+    "id": "ao-ba-ba-nam-bo",
+    "name": "Áo Bà Ba Nam Bộ",
+    "era": "Dân gian Nam Bộ (Thế kỷ 19–20)",
+    "region": "nam",
+    "genders": ["male", "female"],
+    "features": [
+      "Áo xẻ ngực cài một hàng cúc thẳng tắp từ cổ xuống bụng",
+      "Cổ tròn giản dị, hai bên tà áo xẻ cao dễ dàng làm việc đồng áng",
+      "May bằng vải ú, gấm hoặc lụa mềm mại mát mẻ phù hợp khí hậu sông nước",
+      "Thường kết hợp cùng Khăn Rằn vắt vai duyên dáng"
+    ],
+    "meaning": "Vẻ đẹp thuần hậu, chân chất, phóng khoáng và đôn hậu của con người miền Tây Nam Bộ.",
+    "occasions": ["Dạo Phố Cổ", "Chụp Ảnh Kỷ Yếu"],
+    "defaultColors": {
+      "main": "#334155",
+      "bottom": "#0F172A"
+    },
+    "allowedPatternIds": ["none"],
+    "allowedAccessoryIds": ["acc-khan-ran", "acc-non-la", "acc-guoc-moc"],
+    "sources": [],
+    "verified": false
+  }
+}

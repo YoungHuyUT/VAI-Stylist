@@ -1,0 +1,37 @@
+{
+  "pattern_may_co": {
+    "id": "pattern_may_co",
+    "name": "Mây Cổ (Khánh Vân)",
+    "description": "Hoa văn đám mây lành uốn lượn tượng trưng cho sự cát tường, mưa thuận gió hòa và ơn phước trời đất.",
+    "sources": ["src-nn-aomu", "src-kddn-hdsl"],
+    "verified": true
+  },
+  "pattern_chim_lac": {
+    "id": "pattern_chim_lac",
+    "name": "Chim Lạc Đông Sơn",
+    "description": "Hình tượng loài chim thiêng sải cánh vươn cao từ thời đại Hùng Vương, biểu tượng nguồn cội tự hào dân tộc.",
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  "pattern_song_nuoc": {
+    "id": "pattern_song_nuoc",
+    "name": "Thủy Ba Sóng Nước",
+    "description": "Hoa văn sóng cuộn tam sơn đặc trưng nơi gấu áo hoàng triều triều Nguyễn, biểu tượng cho giang sơn vững bền.",
+    "sources": ["src-kddn-hdsl"],
+    "verified": true
+  },
+  "pattern_cuc_day": {
+    "id": "pattern_cuc_day",
+    "name": "Hoa Cúc Dây",
+    "description": "Hoa cúc trường thọ cánh kép đan cài dây lá uyển chuyển, biểu trưng cho phúc thọ vô biên và phẩm hạnh thanh cao.",
+    "sources": [],
+    "verified": false
+  },
+  "none": {
+    "id": "none",
+    "name": "Lụa Trơn Cổ Truyền",
+    "description": "Mặt vải dệt trơn giữ trọn độ óng ánh tự nhiên của sợi tơ tằm nguyên bản, mộc mạc và thanh lịch.",
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  }
+}

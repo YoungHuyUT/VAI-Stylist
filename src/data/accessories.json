@@ -1,0 +1,82 @@
+{
+  "acc-khan-dong": {
+    "id": "acc-khan-dong",
+    "name": "Khăn Đóng Tám Nếp",
+    "slot": "head",
+    "features": ["Quấn 8 nếp vải tơ đen hoặc lam hình chữ Nhất trước trán", "Tôn phong thái chững chạc, nho nhã"],
+    "sources": ["src-nn-aomu", "src-dntl"],
+    "verified": true
+  },
+  "acc-khan-vanh": {
+    "id": "acc-khan-vanh",
+    "name": "Khăn Vành Vàng Kim",
+    "slot": "head",
+    "features": ["Khăn vấn rộng vòng tròn quanh đầu dát vải nhiễu vàng hoặc tím", "Lễ phục cung đình quý phái"],
+    "sources": ["src-kddn-hdsl"],
+    "verified": true
+  },
+  "acc-non-quai-thao": {
+    "id": "acc-non-quai-thao",
+    "name": "Nón Quai Thao",
+    "slot": "head",
+    "features": ["Nón ba tầm phẳng rộng đan lá cọ gắn dải quai thao đen huyền thoại"],
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  "acc-non-la": {
+    "id": "acc-non-la",
+    "name": "Nón Lá Chóp",
+    "slot": "head",
+    "features": ["Nón lá truyền thống che mưa che nắng, mộc mạc thanh thuần"],
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  "acc-kieng-bac": {
+    "id": "acc-kieng-bac",
+    "name": "Kiềng Bạc Chạm Hoa",
+    "slot": "neck",
+    "features": ["Vòng kiềng bạc đúc tròn chạm trổ hoa văn cúc dây hoặc hoa đào tinh xảo"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "acc-quat-tram": {
+    "id": "acc-quat-tram",
+    "name": "Quạt Trầm Hương",
+    "slot": "hand",
+    "features": ["Nan gỗ trầm khắc chìm hoa văn, tỏa hương thơm thanh tịnh khi phe phẩy"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "acc-hai-theu": {
+    "id": "acc-hai-theu",
+    "name": "Hài Thêu Chỉ Vàng",
+    "slot": "waist",
+    "features": ["Mũi hài cong nhẹ thêu hoa sen hoặc vân mây bằng chỉ tơ ánh kim"],
+    "sources": ["src-kddn-hdsl"],
+    "verified": true
+  },
+  "acc-dai-lung-lua": {
+    "id": "acc-dai-lung-lua",
+    "name": "Dải Lưng Lụa Đào",
+    "slot": "waist",
+    "features": ["Dải lụa mềm thắt nơ trước bụng, buông rủ hai vạt bay nhẹ theo bước chân"],
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  "acc-khan-ran": {
+    "id": "acc-khan-ran",
+    "name": "Khăn Rằn Nam Bộ",
+    "slot": "neck",
+    "features": ["Khăn caro đen trắng dệt bông thô thấm mồ hôi, vắt ngang cổ phóng khoáng"],
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  "acc-sneaker": {
+    "id": "acc-sneaker",
+    "name": "Giày Sneaker Hiện Đại",
+    "slot": "waist",
+    "features": ["Phụ kiện thời trang hiện đại cho phong cách Remix Gen Z"],
+    "sources": [],
+    "verified": false
+  }
+}

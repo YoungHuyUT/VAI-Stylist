@@ -1,0 +1,60 @@
+[
+  {
+    "id": "rule-sacred-short-bottom",
+    "level": "critical",
+    "when": {
+      "costumeIds": ["ao-nhat-binh", "ao-tac"],
+      "events": ["Đi Lễ Chùa", "Nghi Lễ Tế Đền"]
+    },
+    "message": "Cảnh báo vi phạm quy chuẩn tôn nghiêm nơi cửa Phật và đền miếu!",
+    "reason": "Áo Nhật Bình và Áo Tấc là lễ phục triều đình tôn nghiêm, quy chế điển chương Đại Nam bắt buộc phải đi cùng Thường Lụa hoặc Quần Lụa dài qua mắt cá chân khi cúng bái tế lễ.",
+    "fix": {
+      "set": {
+        "accessories": ["acc-khan-dong", "acc-hai-theu"]
+      }
+    },
+    "sources": ["src-nn-aomu", "src-kddn-hdsl"],
+    "verified": true
+  },
+  {
+    "id": "rule-ceremonial-sneaker",
+    "level": "warning",
+    "when": {
+      "events": ["Đi Lễ Chùa", "Nghi Lễ Tế Đền"],
+      "accessoryIds": ["acc-sneaker"]
+    },
+    "message": "Bản phối có yếu tố giao thoa hiện đại cần cân nhắc ngữ cảnh.",
+    "reason": "Giày Sneaker tạo nét phá cách năng động cho kỷ yếu, nhưng tại các nghi lễ tâm linh truyền thống, bạn nên ưu tiên Hài Thêu hoặc Giày Tây sẫm màu để giữ sự trang trọng tôn nghiêm.",
+    "fix": {
+      "set": {
+        "accessories": ["acc-hai-theu"]
+      }
+    },
+    "sources": ["src-nn-aomu"],
+    "verified": true
+  },
+  {
+    "id": "rule-remix-streetwear-safe",
+    "level": "safe",
+    "when": {
+      "events": ["Chụp Ảnh Kỷ Yếu", "Dạo Phố Cổ"],
+      "remixAtLeast": 50
+    },
+    "message": "Phong cách Việt Phục Remix Gen Z hài hòa và năng động!",
+    "reason": "Việc kết hợp Cổ phục với tinh thần đương đại trong các buổi dạo phố, chụp ảnh kỷ yếu giúp di sản gần gũi hơn với giới trẻ mà không làm biến dạng cấu trúc áo.",
+    "sources": ["src-vhtt-dl"],
+    "verified": true
+  },
+  {
+    "id": "rule-traditional-standard-safe",
+    "level": "safe",
+    "when": {
+      "costumeIds": ["ao-ngu-than-tay-chen"],
+      "accessoryIds": ["acc-khan-dong"]
+    },
+    "message": "Bản phối đạt chuẩn mực mỹ tục Cổ Phục truyền thống.",
+    "reason": "Áo Ngũ Thân Tay Chẽn đi cùng Khăn Đóng Tám Nếp thể hiện trọn vẹn tinh thần Nho phong đĩnh đạc và cốt cách khiêm nhu thời Nguyễn.",
+    "sources": ["src-nn-aomu", "src-dntl"],
+    "verified": true
+  }
+]
