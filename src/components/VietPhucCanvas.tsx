@@ -35,8 +35,6 @@ import {
   HAIR_STYLES,
   HAIR_COLORS,
   EXPRESSIONS,
-  TRADITIONAL_COLORS,
-  BOTTOM_GARMENTS,
   CATALOG_COLOR_SWATCHES,
   getFabricMaterialSpec,
 } from '../data/vietPhucData';
@@ -214,10 +212,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
   const {
     outfit,
     setEnableTrouserKey,
-    setPrimaryColorById,
-    setPrimaryColorHex,
-    setTrouserByName,
-    setTrouserColorHex,
   } = useOutfitState();
 
   const activeGender = outfit?.gender || genderEn;
@@ -2078,146 +2072,6 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
             </div>
           </div>
         )}
-      </div>
-
-      {/* Quick Real-World Color & Trouser Switcher Bar (Emphasizing Instant Color & Bottom Replacement for Nam & Nữ) */}
-      <div className="relative z-20 px-3 py-2 bg-[#F5F1E8] border-t border-[#DFD8C8] space-y-2 text-xs">
-        {/* Row 1: Instant 360° Real-World Trouser / Skirt Selector */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="px-1.5 py-0.5 bg-[#9A3412] text-[#FBF9F5] text-[10px] font-bold uppercase tracking-wider">
-              Thay Quần 360° ({activeGender === 'male' ? 'Nam' : 'Nữ'})
-            </span>
-            <span className="text-[11px] font-semibold text-[#1C1917]">
-              {bottomGarment.name}
-            </span>
-            <span className="text-[10px] font-mono-tabular text-[#686259]">
-              ({bottomGarment.material})
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1">
-            {BOTTOM_GARMENTS.map((b) => {
-              const isSelected = bottomGarment.id === b.id;
-              const shortLabel = b.name
-                .replace(' Ống Rộng Contemporary', '')
-                .replace(' Ống Suông Cổ Điển', '')
-                .replace(' Micro-Miniskirt', '')
-                .replace(' Cắt Ngắn', '')
-                .replace(' Ống Rộng', '');
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setTrouserByName(b.name)}
-                  className={`px-2 py-1 text-[10px] font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#1C1917] text-[#FDE68A] border-[#1C1917] shadow-xs'
-                      : 'bg-[#FBF9F5] text-[#1C1917] border-[#DFD8C8] hover:border-[#1C1917]'
-                  }`}
-                  title={`${b.name} — ${b.note}`}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full border border-black/25 shrink-0"
-                    style={{
-                      backgroundColor: isSelected ? activeQuanHex : b.hex,
-                    }}
-                  />
-                  <span>{shortLabel}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Row 2: Instant Dual Color Studio (Màu Áo & Màu Quần) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1.5 border-t border-[#DFD8C8]/80">
-          {/* Màu Áo Swatches */}
-          <div className="flex flex-wrap items-center justify-between gap-1.5 bg-[#FBF9F5] px-2.5 py-1.5 border border-[#DFD8C8]">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#1C1917]">
-                Đổi Màu Áo:
-              </span>
-              <span className="text-[10px] font-mono-tabular font-semibold text-[#9A3412]">
-                {activeAoHex}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              {TRADITIONAL_COLORS.map((c) => {
-                const isAoActive =
-                  activeAoHex.toLowerCase() === c.hex.toLowerCase();
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setPrimaryColorById(c.id)}
-                    title={`${c.name} (${c.hex})`}
-                    className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
-                      isAoActive
-                        ? 'scale-115 ring-2 ring-[#1C1917] border-white'
-                        : 'border-black/25 hover:scale-110'
-                    }`}
-                    style={{ backgroundColor: c.hex }}
-                  />
-                );
-              })}
-              <input
-                type="color"
-                value={activeAoHex}
-                onChange={(e) => setPrimaryColorHex(e.target.value)}
-                title="Tùy chọn màu Áo bất kỳ"
-                className="w-5 h-5 cursor-pointer border border-[#DFD8C8] bg-transparent ml-0.5"
-              />
-            </div>
-          </div>
-
-          {/* Màu Quần Swatches */}
-          <div className="flex flex-wrap items-center justify-between gap-1.5 bg-[#FBF9F5] px-2.5 py-1.5 border border-[#DFD8C8]">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#1C1917]">
-                Đổi Màu Quần:
-              </span>
-              <span className="text-[10px] font-mono-tabular font-semibold text-[#9A3412]">
-                {activeQuanHex}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              {[
-                { hex: '#F5F1E8', name: 'Trắng Ngà' },
-                { hex: '#181615', name: 'Đen Lĩnh' },
-                { hex: '#1E40AF', name: 'Xanh Indigo Jeans' },
-                { hex: '#C5A880', name: 'Kem Cát Kaki' },
-                { hex: '#D4AF37', name: 'Vàng Hoàng Gia' },
-                { hex: '#9A2B1D', name: 'Đỏ Son' },
-                { hex: '#134E4A', name: 'Xanh Ngọc' },
-              ].map((sw) => {
-                const isQuanActive =
-                  activeQuanHex.toLowerCase() === sw.hex.toLowerCase();
-                return (
-                  <button
-                    key={sw.hex}
-                    type="button"
-                    onClick={() => setTrouserColorHex(sw.hex)}
-                    title={`Màu quần: ${sw.name} (${sw.hex})`}
-                    className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
-                      isQuanActive
-                        ? 'scale-115 ring-2 ring-[#1C1917] border-white'
-                        : 'border-black/25 hover:scale-110'
-                    }`}
-                    style={{ backgroundColor: sw.hex }}
-                  />
-                );
-              })}
-              <input
-                type="color"
-                value={activeQuanHex}
-                onChange={(e) => setTrouserColorHex(e.target.value)}
-                title="Tùy chọn màu Quần bất kỳ"
-                className="w-5 h-5 cursor-pointer border border-[#DFD8C8] bg-transparent ml-0.5"
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Bottom Studio Control Bar */}

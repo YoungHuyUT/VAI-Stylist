@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, LoaderCircle, Sparkles, X } from 'lucide-react';
 import { RemixLook, RemixStudioRequest, RemixStudioResponse, RemixThemeId } from '../types/remix';
 import { culturalData } from '../data/culturalDataLoader';
@@ -30,10 +30,33 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
   const [engine, setEngine] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const generationId = useRef(0);
+
+  useEffect(() => {
+    generationId.current += 1;
+    if (!isOpen) setIsLoading(false);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
+  const closeStudio = () => {
+    generationId.current += 1;
+    setIsLoading(false);
+    onClose();
+  };
+
+  const chooseTheme = (nextTheme: RemixThemeId) => {
+    if (nextTheme === theme) return;
+    generationId.current += 1;
+    setTheme(nextTheme);
+    setLooks([]);
+    setEngine('');
+    setError('');
+    setIsLoading(false);
+  };
+
   const generateLooks = async () => {
+    const requestId = ++generationId.current;
     setError('');
     setIsLoading(true);
     try {
@@ -46,12 +69,14 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
       if (!response.ok || !Array.isArray(data.looks) || data.looks.length !== 3) {
         throw new Error(data.error || 'Chưa tạo được 3 gợi ý phối đồ.');
       }
+      if (requestId !== generationId.current) return;
       setLooks(data.looks);
       setEngine(data.engine || 'V-Stylist');
     } catch (err) {
+      if (requestId !== generationId.current) return;
       setError(err instanceof Error ? err.message : 'Kết nối cố vấn chưa sẵn sàng.');
     } finally {
-      setIsLoading(false);
+      if (requestId === generationId.current) setIsLoading(false);
     }
   };
 
@@ -76,7 +101,7 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
               Chọn một mood. Gemini sẽ gợi ý ba hướng phối; bạn tự chọn món nào sẽ mặc lên mẫu 3D.
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Đóng Studio" className="p-2 text-[#554D44] hover:bg-black/5">
+          <button type="button" onClick={closeStudio} aria-label="Đóng Studio" className="p-2 text-[#554D44] hover:bg-black/5">
             <X className="w-5 h-5" />
           </button>
         </header>
@@ -90,7 +115,7 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setTheme(item.id)}
+                    onClick={() => chooseTheme(item.id)}
                     aria-pressed={theme === item.id}
                     className={`px-3 py-2 border text-left transition-colors ${
                       theme === item.id

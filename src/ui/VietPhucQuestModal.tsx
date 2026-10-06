@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   BadgeCheck,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { VIET_PHUC_QUEST_STAGES } from '../data/vietPhucQuest';
 import { culturalData } from '../data/culturalDataLoader';
+import { TOP_GARMENTS } from '../data/vietPhucData';
 
 const PROGRESS_KEY = 'vai-stylist:quest-progress:v1';
 
@@ -58,11 +59,15 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
   const [isLoadingHint, setIsLoadingHint] = useState(false);
   const [guideEngine, setGuideEngine] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const hintRequestId = useRef(0);
 
   const activeStage =
     VIET_PHUC_QUEST_STAGES.find((stage) => stage.id === activeStageId) ||
     VIET_PHUC_QUEST_STAGES[0];
   const costume = culturalData.costumes[activeStage.costumeId];
+  const stageGarment = TOP_GARMENTS.find(
+    (garment) => garment.id === activeStage.costumeId
+  );
   const isComplete = completedIds.length === VIET_PHUC_QUEST_STAGES.length;
   const isCurrentComplete = completedIds.includes(activeStage.id);
   const isAnswerCorrect = selectedChoiceId === activeStage.correctChoiceId;
@@ -74,6 +79,7 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
   );
 
   useEffect(() => {
+    hintRequestId.current += 1;
     if (!isOpen) return;
     setActiveStageId(
       VIET_PHUC_QUEST_STAGES.find((stage) => !completedIds.includes(stage.id))?.id ||
@@ -82,6 +88,7 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
     setSelectedChoiceId(null);
     setHintText(null);
     setGuideEngine(null);
+    setIsLoadingHint(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -95,31 +102,37 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
   if (!isOpen) return null;
 
   const selectStage = (stageId: string) => {
+    hintRequestId.current += 1;
     setActiveStageId(stageId);
     setSelectedChoiceId(null);
     setHintText(null);
     setGuideEngine(null);
+    setIsLoadingHint(false);
   };
 
   const requestHint = async () => {
+    const requestId = ++hintRequestId.current;
+    const stageId = activeStage.id;
     setIsLoadingHint(true);
     setHintText(activeStage.hint);
     try {
       const response = await fetch('/api/quest-guide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stageId: activeStage.id }),
+        body: JSON.stringify({ stageId }),
       });
       if (!response.ok) throw new Error('Quest guide unavailable');
       const result = await response.json();
+      if (requestId !== hintRequestId.current) return;
       if (typeof result.hint === 'string' && result.hint.trim()) {
         setHintText(result.hint.trim());
       }
       setGuideEngine(result.engine || 'Gợi ý Gemini');
     } catch {
+      if (requestId !== hintRequestId.current) return;
       setGuideEngine('Manh mối trong sổ tư liệu');
     } finally {
-      setIsLoadingHint(false);
+      if (requestId === hintRequestId.current) setIsLoadingHint(false);
     }
   };
 
@@ -141,11 +154,13 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
   };
 
   const resetProgress = () => {
+    hintRequestId.current += 1;
     setCompletedIds([]);
     setSelectedChoiceId(null);
     setHintText(null);
     setGuideEngine(null);
     setActiveStageId(VIET_PHUC_QUEST_STAGES[0].id);
+    setIsLoadingHint(false);
   };
 
   const shareProgress = async () => {
@@ -325,11 +340,29 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
                     )}
                   </div>
 
-                  <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#8B5E34]">{activeStage.chapter}</p>
-                  <h3 className="mt-1 font-editorial text-2xl font-bold leading-tight sm:text-3xl">{activeStage.title}</h3>
-                  <p className="mt-3 text-sm leading-relaxed text-[#655B4D]">
-                    Lần theo manh mối, chọn đáp án, rồi mở thẻ tư liệu để biết câu chuyện phía sau bộ áo.
-                  </p>
+                  <div className="mt-5 grid overflow-hidden border border-[#D8CDB8] bg-[#F1EADF] sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                    {stageGarment?.image ? (
+                      <div className="relative min-h-44 bg-[#E3D8C6] sm:min-h-56">
+                        <img
+                          src={stageGarment.image}
+                          alt={`Hình tham khảo ${stageGarment.baseName}`}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#1C1917]/80 to-transparent px-3 pb-3 pt-8 text-white">
+                          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/75">Quan sát phom áo</p>
+                          <p className="mt-0.5 font-editorial text-lg font-semibold">{stageGarment.baseName}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="flex flex-col justify-center p-4 sm:p-5">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8B5E34]">{activeStage.chapter}</p>
+                      <h3 className="mt-1 font-editorial text-2xl font-bold leading-tight sm:text-3xl">{activeStage.title}</h3>
+                      <p className="mt-3 text-sm leading-relaxed text-[#655B4D]">
+                        Quan sát hình, lần theo manh mối rồi mở thẻ tư liệu để khám phá câu chuyện phía sau bộ áo.
+                      </p>
+                    </div>
+                  </div>
 
                   <section className="mt-6 border border-[#E1D7C5] bg-[#F5F0E7] p-4 sm:p-5">
                     <div className="flex items-start gap-3">

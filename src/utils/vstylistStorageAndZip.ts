@@ -1908,7 +1908,7 @@ export async function renderRecoloredTurntableFrame(params: {
   } = params;
 
   const accessoriesKey = [...accessories].sort().join(',');
-  const garmentCacheKey = `v44_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
+  const garmentCacheKey = `v45_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
     enableTrouserKey ? 1 : 0
   }|${patternId}|${hoaTietHex}|${patternConfig.scale.toFixed(
     2
@@ -1945,6 +1945,30 @@ export async function renderRecoloredTurntableFrame(params: {
     const isShortBottom =
       bottomId === 'quan-short-jeans-cat-ngan' ||
       bottomId === 'chan-vay-ngan-miniskirt';
+    let photographedLegUnderlay: Uint8ClampedArray | null = null;
+    if (isShortBottom) {
+      const underlayFrames = await resolveBottomTurntableFrames(bottomId, gender);
+      const underlayCanvas = underlayFrames
+        ? getCachedRecoloredCanvas(underlayFrames.frames[frameIndex])
+        : null;
+      if (
+        underlayCanvas &&
+        underlayCanvas.width === 768 &&
+        underlayCanvas.height === 1152
+      ) {
+        const underlayContext = underlayCanvas.getContext('2d', {
+          willReadFrequently: true,
+        });
+        if (underlayContext) {
+          photographedLegUnderlay = underlayContext.getImageData(
+            0,
+            0,
+            768,
+            1152
+          ).data;
+        }
+      }
+    }
     const isModernTrouserBottom =
       bottomId === 'quan-jeans-ong-suong' ||
       bottomId === 'quan-kaki-ong-rong';
@@ -3148,6 +3172,31 @@ export async function renderRecoloredTurntableFrame(params: {
             : 1.0;
 
         if (isShortBottom && y > shortGarmentHemY) {
+          // Reuse same-angle skin pixels from the matching 360° shorts sheet.
+          if (photographedLegUnderlay && y < footBottomY - 82) {
+            const underlayIdx = idx;
+            const underlayR = photographedLegUnderlay[underlayIdx];
+            const underlayG = photographedLegUnderlay[underlayIdx + 1];
+            const underlayB = photographedLegUnderlay[underlayIdx + 2];
+            const underlayA = photographedLegUnderlay[underlayIdx + 3];
+            const underlaySkin =
+              underlayA > 36 &&
+              underlayR > underlayG + 7 &&
+              underlayG > underlayB + 3 &&
+              underlayR - underlayB > 20 &&
+              underlayR - underlayG < 100;
+
+            if (underlaySkin) {
+              data[idx] = underlayR;
+              data[idx + 1] = underlayG;
+              data[idx + 2] = underlayB;
+              data[idx + 3] = underlayA;
+            } else {
+              data[idx + 3] = 0;
+            }
+            continue;
+          }
+
           // BARE THIGHS, KNEES & CALVES ZONE (`da đùi, đầu gối, bắp chân`):
           // Compute anatomical human leg half-width from upper thigh (legProg=0) -> knee (0.42) -> calf (0.64) -> ankle (1.0)
           const thighTaper = (1.0 - legProg) * (gender === 'female' ? 11.5 : 12.5);
