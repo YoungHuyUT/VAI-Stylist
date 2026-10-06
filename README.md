@@ -1,4 +1,4 @@
-# 🇻🇳 V-Stylist — Cố Vấn Cổ Phục Việt & Định Hình Phong Cách
+# 🇻🇳 VAI-Stylist — Cố Vấn Cổ Phục Việt & Định Hình Phong Cách
 > **Hệ thống trí tuệ nhân tạo thẩm định thẩm mỹ, kiểm duyệt quy chuẩn văn hóa Việt Phục (Áo Ngũ Thân, Nhật Bình, Áo Tấc, Tứ Thân...) và bộ công cụ thử đồ ảo 3D/360° kết hợp chuyển giao trang phục chân thực.**
 
 ---
@@ -20,7 +20,7 @@
 
 ## 🌟 Giới Thiệu Tổng Quan
 
-**V-Stylist** là nền tảng số hóa di sản trang phục truyền thống Việt Nam kết hợp thời trang đương đại thế hệ mới (Gen Z Fashion Fusion). Ứng dụng cung cấp:
+**VAI-Stylist** là nền tảng số hóa di sản trang phục truyền thống Việt Nam kết hợp thời trang đương đại thế hệ mới (Gen Z Fashion Fusion). Ứng dụng cung cấp:
 - **Tương tác trực quan 3D/360°**: Quan sát mọi góc nhìn (Trước 0°, Trái 90°, Sau 180°, Phải 270°) của các trang phục cổ truyền (Áo Ngũ Thân tay chẽn, Áo Tấc, Áo Nhật Bình, Áo Tứ Thân, Áo Dài Tân Thời, Áo Bà Ba, Giao Lĩnh, Viên Lĩnh).
 - **Hệ thống Thay Quần / Hạ Y đời thật**: Chuyển đổi linh hoạt giữa Quần Lụa truyền thống, Quần Lĩnh, Quần Tây Kaki, Quần Jeans, Thường Lụa Xếp Ly, Quần Short... với thuật toán phân tách tà áo, bảo tồn bóng đổ nếp gấp vải HDR và vân dệt thực tế.
 - **Giám định văn hóa bằng AI (Cultural Guardrails)**: Đánh giá độ phù hợp (SAFE, WARNING, CRITICAL) theo ngữ cảnh thời tiết, địa điểm (đền chùa, dạo phố, chụp kỷ yếu, lễ cưới) và hướng dẫn sửa đổi an toàn.
@@ -332,4 +332,4 @@ npm run start
 
 ---
 
-*Phát triển bởi đội ngũ kỹ sư V-Stylist — Giữ gìn và tôn vinh hồn cốt Việt qua công nghệ số.*
+*Phát triển bởi đội ngũ VAI-Stylist — Giữ gìn và tôn vinh hồn cốt Việt qua công nghệ số.*
