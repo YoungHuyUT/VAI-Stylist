@@ -1625,15 +1625,30 @@ async function getBottomFramePixels(
 
   const frames = await resolveBottomTurntableFrames(bottomId, gender);
   const frame = frames?.frames[frameIndex];
-  const canvas = frame ? getCachedRecoloredCanvas(frame) : null;
-  const context = canvas?.getContext('2d', { willReadFrequently: true });
-  if (!canvas || canvas.width !== 768 || canvas.height !== 1152 || !context) {
-    return null;
+  if (!frame) return null;
+
+  let canvas = getCachedRecoloredCanvas(frame);
+  let context = canvas?.getContext('2d', { willReadFrequently: true });
+  if (!canvas || !context || canvas.width !== 768 || canvas.height !== 1152) {
+    try {
+      const img = await loadImageElement(frame);
+      const tmpC = document.createElement('canvas');
+      tmpC.width = 768;
+      tmpC.height = 1152;
+      const tmpCtx = tmpC.getContext('2d', { willReadFrequently: true });
+      if (!tmpCtx) return null;
+      tmpCtx.drawImage(img, 0, 0, 768, 1152);
+      canvas = tmpC;
+      context = tmpCtx;
+      recoloredCanvasCache.set(frame, tmpC);
+    } catch {
+      return null;
+    }
   }
 
   const startY = 460;
   const pixels = context.getImageData(0, startY, 768, 1152 - startY).data;
-  if (bottomFramePixelsCache.size >= 12) {
+  if (bottomFramePixelsCache.size >= 16) {
     const oldestKey = bottomFramePixelsCache.keys().next().value;
     if (oldestKey) bottomFramePixelsCache.delete(oldestKey);
   }
@@ -1976,14 +1991,18 @@ export async function renderRecoloredTurntableFrame(params: {
     const hasPhotoLowerSilhouette =
       bottomId === 'quan-short-jeans-cat-ngan' ||
       bottomId === 'quan-jeans-ong-suong' ||
-      (gender === 'female' &&
-        (bottomId === 'thuong-lua-xep-ly' ||
-          bottomId === 'chan-vay-ngan-miniskirt'));
+      bottomId === 'quan-kaki-ong-rong' ||
+      bottomId === 'thuong-lua-xep-ly' ||
+      bottomId === 'chan-vay-ngan-miniskirt';
     let photographedBottomUnderlay: CachedBottomFramePixels | null = null;
     let photographedLegUnderlay: CachedBottomFramePixels | null = null;
     if (hasPhotoLowerSilhouette) {
       const sourceBottomId =
-        bottomId === 'chan-vay-ngan-miniskirt' ? 'thuong-lua-xep-ly' : bottomId;
+        bottomId === 'chan-vay-ngan-miniskirt'
+          ? (gender === 'female' ? 'thuong-lua-xep-ly' : 'quan-short-jeans-cat-ngan')
+          : bottomId === 'quan-kaki-ong-rong'
+          ? 'quan-jeans-ong-suong'
+          : bottomId;
       photographedBottomUnderlay = await getBottomFramePixels(
         sourceBottomId,
         gender,
@@ -3370,27 +3389,19 @@ export async function renderRecoloredTurntableFrame(params: {
           }
         }
 
-        // 4. True Photographic Luminance Transfer (Zero Pixel Breakup, 100% Preserved Studio Drape & Folds):
-        //    Uses 5-tap denoised photographic luminance (`smoothLum`) and gentle surface normal (`nDotL`)
-        //    so 100% of the real cloth folds, pleats, seams, and studio shadows look completely lifelike ("giống đời thường")!
-        const smoothLum =
-          lumField[p] * 0.48 +
-          (lumField[p - 1] +
-            lumField[p + 1] +
-            lumField[p - w] +
-            lumField[p + w]) *
-            0.13;
+        // 4. True Photographic Luminosity Transfer (Preserves 100% of the raw photo high frequencies, folds & fabric depth):
+        const rawLum = lumField[p];
         const rawRatio = Math.max(
-          0.28,
-          Math.min(1.14, smoothLum / Math.max(0.32, refTrouserV))
+          0.16,
+          Math.min(1.25, rawLum / Math.max(0.30, refTrouserV))
         );
 
         const dVx =
-          Math.max(-0.05, Math.min(0.05, lumField[p + 1] - lumField[p - 1])) *
-          0.95;
+          Math.max(-0.06, Math.min(0.06, lumField[p + 1] - lumField[p - 1])) *
+          1.15;
         const dVy =
-          Math.max(-0.05, Math.min(0.05, lumField[p + w] - lumField[p - w])) *
-          0.95;
+          Math.max(-0.06, Math.min(0.06, lumField[p + w] - lumField[p - w])) *
+          1.15;
         const nDotL = Math.max(
           0,
           (-dVx * keyLx - dVy * keyLy + keyLz) / Math.hypot(dVx, dVy, 1.0)
@@ -3412,21 +3423,22 @@ export async function renderRecoloredTurntableFrame(params: {
         if (isLightQuanTarget) {
           photoShade =
             rawRatio < 1.0
-              ? 0.64 + 0.36 * Math.pow(rawRatio, 0.82)
-              : Math.min(1.03, 1.0 + (rawRatio - 1.0) * 0.28);
+              ? 0.72 + 0.28 * Math.pow(rawRatio, 0.75)
+              : Math.min(1.02, 1.0 + (rawRatio - 1.0) * 0.22);
         } else if (targetQuanHsv.v < 0.38) {
+          // Authentic Vietnamese black silk (Lãnh Mỹ A): rich obsidian tone with high dynamic contrast
           photoShade =
-            0.46 +
-            0.82 * Math.pow(rawRatio, 0.88) +
-            0.18 * Math.pow(cylRoundness, 1.6);
+            0.18 +
+            0.82 * Math.pow(Math.max(0, rawRatio - 0.12), 1.25) +
+            0.12 * Math.pow(cylRoundness, 2.0);
         } else {
           photoShade =
             rawRatio < 1.0
-              ? 0.42 + 0.58 * Math.pow(rawRatio, 0.85)
-              : Math.min(1.08, 1.0 + (rawRatio - 1.0) * 0.38);
+              ? 0.35 + 0.65 * Math.pow(rawRatio, 0.88)
+              : Math.min(1.12, 1.0 + (rawRatio - 1.0) * 0.42);
         }
 
-        // Subtle, clean textile micro-detailing (no noisy dashed pixel lines or silhouette cutouts!)
+        // Subtle, clean textile micro-detailing
         let styleModV = 0;
         let styleModS = 0;
         const isDenimStyle =
@@ -3437,35 +3449,25 @@ export async function renderRecoloredTurntableFrame(params: {
           bottomId === 'chan-vay-ngan-miniskirt';
 
         if (isDenimStyle) {
-          // Fine diagonal denim twill, restrained leg wash, and tailored outer seam.
-          // Keep stitch detail tied to the leg contour so it follows each turntable angle.
-          const twillWave = Math.sin((x * 1.15 + y * 1.15) * 0.9) * 0.014;
+          const twillWave = Math.sin((x * 1.15 + y * 1.15) * 0.9) * 0.008;
           const centerWhiskerFade =
-            Math.pow(Math.max(0, 1.0 - Math.abs(normLegDx) * 1.25), 1.8) * 0.065;
-          const seamDistance = Math.abs(Math.abs(normLegDx) - 0.84);
-          const seamShadow = Math.exp(-seamDistance * seamDistance / 0.0018) * -0.022;
-          const stitchDash = Math.sin(y * 0.82) > 0.72 ? 0.018 : 0;
-          const seamStitch = Math.abs(normLegDx) > 0.72 && seamDistance < 0.018
-            ? stitchDash
-            : 0;
-          styleModV = twillWave + centerWhiskerFade + seamShadow + seamStitch;
-          styleModS = -centerWhiskerFade * 0.32;
+            Math.pow(Math.max(0, 1.0 - Math.abs(normLegDx) * 1.25), 1.8) * 0.045;
+          styleModV = twillWave + centerWhiskerFade;
+          styleModS = -centerWhiskerFade * 0.2;
         } else if (bottomId === 'quan-kaki-ong-rong') {
-          // Fine cotton twill + soft center-front pressed crease (`ly quần`)
-          const cottonTwill = Math.sin((x - y) * 1.1) * 0.006;
+          const cottonTwill = Math.sin((x - y) * 1.1) * 0.004;
           const dxCrease = x - legAxis;
           const creaseRelief =
-            !isSideView && Math.abs(dxCrease) <= 4.0
+            !isSideView && Math.abs(dxCrease) <= 3.5
               ? dxCrease <= 0
-                ? 0.024 * (1 - Math.abs(dxCrease) / 4.0)
-                : -0.02 * (1 - Math.abs(dxCrease) / 4.0)
+                ? 0.03 * (1 - Math.abs(dxCrease) / 3.5)
+                : -0.025 * (1 - Math.abs(dxCrease) / 3.5)
               : 0;
           styleModV = cottonTwill + creaseRelief;
         } else if (isPleatedSkirtStyle) {
-          // Smooth vertical accordion pleats (`xếp ly`) blended gently with the natural studio folds
           const pleatPitch = bottomId === 'chan-vay-ngan-miniskirt' ? 0.42 : 0.48;
           const pleatPhase = (x - rCenter) * pleatPitch;
-          const pleatWave = Math.sin(pleatPhase) * 0.028;
+          const pleatWave = Math.sin(pleatPhase) * 0.038;
           styleModV = pleatWave;
         }
 
@@ -3476,33 +3478,33 @@ export async function renderRecoloredTurntableFrame(params: {
             bottomId === 'thuong-lua-xep-ly');
         const effectiveBaseV =
           targetQuanHsv.v < 0.38
-            ? Math.max(0.15, targetQuanHsv.v * 1.48)
+            ? Math.max(0.22, targetQuanHsv.v * 1.65)
             : targetQuanHsv.v;
         const ridgeSheen = isDarkSilk
-          ? Math.pow(Math.min(1.0, Math.max(0, rawRatio * 0.92)), 2.2) *
-            (0.06 + 0.06 * nDotL) *
+          ? Math.pow(Math.min(1.0, Math.max(0, rawRatio * 0.96)), 2.8) *
+            (0.22 + 0.18 * nDotL) *
             cylRoundness *
             tunicShadow
           : 0;
 
         const outV = Math.min(
-          0.985,
+          0.99,
           Math.max(
-            0.04,
+            0.02,
             (effectiveBaseV * photoShade + styleModV) *
               tunicShadow *
-              (0.95 + 0.06 * nDotL) +
+              (0.96 + 0.05 * nDotL) +
               ridgeSheen
           )
         );
         const outS = isLightQuanTarget
           ? Math.min(
-              0.068,
-              Math.max(0.018, targetQuanHsv.s * (0.55 + 0.35 * (1.0 - outV)))
+              0.055,
+              Math.max(0.012, targetQuanHsv.s * (0.50 + 0.30 * (1.0 - outV)))
             )
           : Math.min(
-              0.96,
-              Math.max(0, targetQuanHsv.s * (0.96 - ridgeSheen * 0.4) + styleModS)
+              0.98,
+              Math.max(0, targetQuanHsv.s * (0.98 - ridgeSheen * 0.3) + styleModS)
             );
         const outH =
           isLightQuanTarget && targetQuanHsv.s < 0.15 ? 0.105 : targetQuanHsv.h;
@@ -3523,7 +3525,22 @@ export async function renderRecoloredTurntableFrame(params: {
     if (photographedBottomUnderlay && hasPhotoLowerSilhouette) {
       const isMiniSkirt = bottomId === 'chan-vay-ngan-miniskirt';
       const isShortJeans = bottomId === 'quan-short-jeans-cat-ngan';
-      const footwearStartY = footBottomY - 82;
+      const isDefaultBottomColor =
+        bottomId === 'quan-jeans-ong-suong'
+          ? quanHex.trim().toUpperCase() === '#1E40AF'
+          : bottomId === 'quan-kaki-ong-rong'
+          ? quanHex.trim().toUpperCase() === '#C5A880'
+          : bottomId === 'thuong-lua-xep-ly'
+          ? quanHex.trim().toUpperCase() === '#D4AF37'
+          : bottomId === 'quan-short-jeans-cat-ngan'
+          ? quanHex.trim().toUpperCase() === '#2563EB'
+          : bottomId === 'chan-vay-ngan-miniskirt'
+          ? quanHex.trim().toUpperCase() === '#9A2B1D'
+          : false;
+
+      const footwearStartY = isModernTrouserBottom
+        ? footBottomY
+        : footBottomY - 18;
       for (let x = 1; x < w - 1; x++) {
         const topHemY = getTunicHemLimitY(x);
         const dx = Math.min(1, Math.abs((x - bodyCenterX) / 92));
@@ -3531,11 +3548,11 @@ export async function renderRecoloredTurntableFrame(params: {
         const miniHemY = Math.round(
           738 + Math.cos(dx * Math.PI * 0.5) * 4
         );
-      const sourceEndY = isMiniSkirt
-        ? miniHemY
-        : isShortJeans
+        const sourceEndY = isMiniSkirt
+          ? miniHemY
+          : isShortJeans
           ? shortsHemY
-            : footwearStartY;
+          : footwearStartY;
         const startY = topHemY + 1;
         const endY = Math.min(h - 1, footwearStartY, sourceEndY);
 
@@ -3543,14 +3560,13 @@ export async function renderRecoloredTurntableFrame(params: {
           const idx = (y * w + x) * 4;
           const sourceIdx =
             ((y - photographedBottomUnderlay.startY) * w + x) * 4;
+          const sourceA = photographedBottomUnderlay.bd[sourceIdx + 3];
+          if (sourceA < 32) {
+            continue;
+          }
           const sourceR = photographedBottomUnderlay.bd[sourceIdx];
           const sourceG = photographedBottomUnderlay.bd[sourceIdx + 1];
           const sourceB = photographedBottomUnderlay.bd[sourceIdx + 2];
-          const sourceA = photographedBottomUnderlay.bd[sourceIdx + 3];
-          if (sourceA < 32) {
-            data[idx + 3] = 0;
-            continue;
-          }
 
           const sourceHsv = rgbToHsv(
             sourceR / 255,
@@ -3565,24 +3581,48 @@ export async function renderRecoloredTurntableFrame(params: {
             sourceR - sourceB > 20 &&
             sourceR - sourceG < 100;
 
+          const distBelowHem = y - topHemY;
+          const tunicContactShadow =
+            distBelowHem >= 0 && distBelowHem < 16
+              ? 0.82 + 0.18 * (distBelowHem / 16)
+              : 1.0;
+
           if (sourceSkin) {
-            data[idx] = sourceR;
-            data[idx + 1] = sourceG;
-            data[idx + 2] = sourceB;
-            data[idx + 3] = sourceA;
+            data[idx] = Math.round(sourceR * tunicContactShadow);
+            data[idx + 1] = Math.round(sourceG * tunicContactShadow);
+            data[idx + 2] = Math.round(sourceB * tunicContactShadow);
+            data[idx + 3] = Math.max(data[idx + 3], sourceA);
             continue;
           }
 
-          const shade = 0.42 + sourceHsv.v * 0.58;
+          if (isDefaultBottomColor) {
+            // 100% Authentic Photorealistic Studio Texture, Weave, and Shadows
+            data[idx] = Math.round(sourceR * tunicContactShadow);
+            data[idx + 1] = Math.round(sourceG * tunicContactShadow);
+            data[idx + 2] = Math.round(sourceB * tunicContactShadow);
+            data[idx + 3] = Math.max(data[idx + 3], sourceA);
+            continue;
+          }
+
+          // Luminosity-preserving tone mapping for custom selected colors
+          const sourceLum = (sourceR * 0.299 + sourceG * 0.587 + sourceB * 0.114) / 255;
+          const toneShade = Math.min(
+            1.05,
+            Math.max(0.12, (0.28 + sourceLum * 0.84) * tunicContactShadow)
+          );
+          const targetEffectiveV =
+            targetQuanHsv.v < 0.38
+              ? Math.max(0.20, targetQuanHsv.v * 1.5)
+              : targetQuanHsv.v;
           const tinted = hsvToRgb(
             targetQuanHsv.h,
-            targetQuanHsv.s,
-            Math.min(1, targetQuanHsv.v * shade)
+            Math.min(1.0, targetQuanHsv.s * (0.92 + 0.12 * (1.0 - sourceLum))),
+            Math.min(0.99, targetEffectiveV * toneShade)
           );
           data[idx] = Math.round(tinted.r * 255);
           data[idx + 1] = Math.round(tinted.g * 255);
           data[idx + 2] = Math.round(tinted.b * 255);
-          data[idx + 3] = sourceA;
+          data[idx + 3] = Math.max(data[idx + 3], sourceA);
         }
       }
     }
