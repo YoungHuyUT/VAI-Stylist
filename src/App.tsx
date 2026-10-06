@@ -68,6 +68,8 @@ import { BodyShapeAndFitModal } from './components/BodyShapeAndFitModal';
 import { RemixStudioModal } from './components/RemixStudioModal';
 import { LookbookModal } from './ui/LookbookModal';
 import { CompareModal, SavedLook } from './ui/CompareModal';
+import { VietPhucQuestModal } from './ui/VietPhucQuestModal';
+import { ScanModal } from './ui/ScanModal';
 import { RemixLook } from './types/remix';
 import {
   OutfitStateProvider,
@@ -339,6 +341,8 @@ function VStylistWorkspace() {
   const [isRemixStudioOpen, setIsRemixStudioOpen] = useState<boolean>(false);
   const [isLookbookOpen, setIsLookbookOpen] = useState<boolean>(false);
   const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
+  const [isQuestOpen, setIsQuestOpen] = useState<boolean>(false);
+  const [isScanOpen, setIsScanOpen] = useState<boolean>(false);
   const [savedLooks, setSavedLooks] = useState<SavedLook[]>([]);
 
   // UI Navigation Tabs inside Left Control Dock
@@ -1028,6 +1032,17 @@ function VStylistWorkspace() {
         </nav>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsQuestOpen(true)}
+            aria-label="Mở Việt Phục Quest"
+            className="px-2.5 sm:px-3 py-1.5 text-xs font-semibold border border-[#8B5E34] bg-[#F6EFDF] hover:bg-[#EAE1D0] text-[#674624] transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+            title="Mở hành trình khám phá Việt Phục Quest"
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline xl:hidden">Quest</span>
+            <span className="hidden xl:inline">Việt Phục Quest</span>
+          </button>
           <button
             type="button"
             onClick={() => setIsRemixStudioOpen(true)}
@@ -2603,6 +2618,23 @@ function VStylistWorkspace() {
         onApplyLook={handleApplySavedLook}
         onDeleteLook={(id) => setSavedLooks((current) => current.filter((look) => look.id !== id))}
       />
+      <VietPhucQuestModal
+        isOpen={isQuestOpen}
+        onClose={() => setIsQuestOpen(false)}
+        onOpenScan={() => {
+          setIsQuestOpen(false);
+          setIsScanOpen(true);
+        }}
+        onApplyCostume={(costumeId) => {
+          if (TOP_GARMENTS.some((garment) => garment.id === costumeId)) {
+            setSelectedTopId(costumeId);
+            setActiveControlTab('top');
+            setRightTab('lore');
+          }
+          setIsQuestOpen(false);
+        }}
+      />
+      <ScanModal isOpen={isScanOpen} onClose={() => setIsScanOpen(false)} />
     </div>
   );
 }

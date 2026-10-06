@@ -175,6 +175,48 @@ function isLowerGarmentLabel(label: string): boolean {
   );
 }
 
+function isLegUnderlayLabel(label: string): boolean {
+  const normalizedName = normalizeGarmentLabel(label);
+  return (
+    !isLowerGarmentLabel(normalizedName) &&
+    /body|skin|leg|thigh|calf|shin|tibia/.test(normalizedName)
+  );
+}
+
+function attachNaturalLegShapeShader(
+  material: THREE.MeshPhysicalMaterial
+): void {
+  const previousOnBeforeCompile = material.onBeforeCompile;
+  const previousProgramCacheKey = material.customProgramCacheKey.bind(material);
+
+  material.onBeforeCompile = (shader, renderer) => {
+    previousOnBeforeCompile.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `
+      vec3 vpLegWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      float vpThighWeight =
+        smoothstep(0.46, 0.64, vpLegWorldPosition.y) *
+        (1.0 - smoothstep(0.76, 0.90, vpLegWorldPosition.y));
+      float vpCalfWeight =
+        smoothstep(0.15, 0.24, vpLegWorldPosition.y) *
+        (1.0 - smoothstep(0.42, 0.56, vpLegWorldPosition.y));
+      float vpLegCenterWeight =
+        1.0 - smoothstep(0.16, 0.31, abs(vpLegWorldPosition.x));
+      float vpLegWidth =
+        (0.0065 * vpThighWeight + 0.004 * vpCalfWeight) * vpLegCenterWeight;
+      float vpLegScaleX = max(length(modelMatrix[0].xyz), 0.0001);
+      float vpLegScaleZ = max(length(modelMatrix[2].xyz), 0.0001);
+      transformed.x += sign(vpLegWorldPosition.x) * vpLegWidth / vpLegScaleX;
+      transformed.z += sign(transformed.z) * vpLegWidth * 0.72 / vpLegScaleZ;
+      #include <project_vertex>
+      `
+    );
+  };
+  material.customProgramCacheKey = () =>
+    `${previousProgramCacheKey()}|natural-leg-shape-v1`;
+}
+
 export function applyHierarchicalBoneMaskUniforms(
   uniformSets: LowerGarmentMaskUniforms[],
   mask: HierarchicalBoneMaskState,
@@ -1536,29 +1578,21 @@ function configureModelMaterialsAndRecolor(
 
     const meshNameLower = (mesh.name || '').toLowerCase();
     const isButtonMesh = meshNameLower.includes('button');
-    const isTrouserMesh = isLowerGarmentLabel(meshNameLower);
-    const isSkinOrHairOrEye =
-      meshNameLower.includes('head') ||
-      meshNameLower.includes('face') ||
-      meshNameLower.includes('skin') ||
-      meshNameLower.includes('body') ||
-      meshNameLower.includes('hand') ||
-      meshNameLower.includes('hair') ||
-      meshNameLower.includes('eye') ||
-      meshNameLower.includes('teeth') ||
-      meshNameLower.includes('shoe') ||
-      meshNameLower.includes('boot') ||
-      meshNameLower.includes('footwear') ||
-      meshNameLower.includes('giay') ||
-      meshNameLower.includes('guoc') ||
-      meshNameLower.includes('dep') ||
-      meshNameLower.includes('slipper') ||
-      meshNameLower.includes('sandal') ||
-      meshNameLower.includes('foot');
-
     const origMaterials = Array.isArray(mesh.material)
       ? mesh.material
       : [mesh.material];
+    const materialNameLabel = origMaterials
+      .map((material) => material?.name || '')
+      .join(' ');
+    const meshMaterialLabel = `${meshNameLower} ${materialNameLabel}`;
+    const normalizedMeshMaterialLabel = normalizeGarmentLabel(
+      meshMaterialLabel
+    );
+    const isTrouserMesh = isLowerGarmentLabel(meshMaterialLabel);
+    const isSkinOrHairOrEye =
+      /head|face|skin|body|hand|hair|eye|teeth|shoe|boot|footwear|giay|guoc|dep|slipper|sandal|foot/.test(
+        normalizedMeshMaterialLabel
+      );
 
     const upgradedMaterials = origMaterials.map((origMat) => {
       if (!origMat) return origMat;
@@ -1683,6 +1717,10 @@ function configureModelMaterialsAndRecolor(
           ? defaultTrouserPbr.anisotropyRotation
           : fabricSpec.anisotropyRotation ?? 0.0,
       });
+
+      if (isLegUnderlayLabel(meshMaterialLabel)) {
+        attachNaturalLegShapeShader(physMat);
+      }
 
       if (!isSkinOrHairOrEye) {
         clothMaterials.push({ mat: physMat, hasNativeNormalMap });
@@ -2474,12 +2512,7 @@ export async function loadSuppliedCostumeGlb(params: {
     const isLowerGarmentMesh = isLowerGarmentLabel(
       `${nameLower} ${materialNames}`
     );
-    if (
-      !isLowerGarmentMesh &&
-      /(body|skin|leg|thigh|calf|shin|tibia)/.test(
-        `${nameLower} ${materialNames}`
-      )
-    ) {
+    if (isLegUnderlayLabel(`${nameLower} ${materialNames}`)) {
       hasSkinnedLegUnderlay = true;
     }
     if (nameLower.includes('hair') || nameLower.includes('toc')) {

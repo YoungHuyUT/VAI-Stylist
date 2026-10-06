@@ -17,6 +17,7 @@ export interface ScanResult {
   hasPattern: boolean;
   accessories: string[];
   confidence: number;
+  message?: string;
 }
 
 // In-memory cache for advisor responses keyed by hashOutfit
@@ -128,14 +129,20 @@ export async function fetchAdvisorDebounced(
  * Scans a user photo using Gemini 3.8 Flash Vision to pick matching costume and colors.
  */
 export async function scanCostumeFromPhoto(photoBase64: string): Promise<ScanResult> {
+  const dataUrlMatch = photoBase64.match(/^data:([^;,]+);base64,(.+)$/s);
+  const photoMimeType = dataUrlMatch?.[1] || 'image/jpeg';
+  const imageData = dataUrlMatch?.[2] || photoBase64;
   const resp = await fetch('/api/scan-costume', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ photoBase64 }),
+    body: JSON.stringify({ photoBase64: imageData, photoMimeType }),
   });
   if (!resp.ok) {
     throw new Error('Lỗi khi quét ảnh trang phục');
   }
   const json = await resp.json();
-  return json.scan;
+  return {
+    ...json.scan,
+    message: typeof json.message === 'string' ? json.message : undefined,
+  };
 }
