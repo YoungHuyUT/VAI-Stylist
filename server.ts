@@ -1383,6 +1383,36 @@ Hãy phân tích ngữ cảnh và trả về DUY NHẤT 1 chuỗi JSON theo đú
     const theme = ['heritage', 'everyday', 'editorial', 'festival', 'formal'].includes(body.theme)
       ? body.theme
       : 'everyday';
+    const styleVotes = Array.isArray(body.styleVotes)
+      ? body.styleVotes
+          .filter((vote: any) => vote && typeof vote === 'object')
+          .slice(-24)
+          .flatMap((vote: any) => {
+            const voteCostume = ALLOWED_CATALOG_COSTUMES.includes(vote.costumeId)
+              ? vote.costumeId
+              : null;
+            const voteColor = ALLOWED_CATALOG_COLORS.find(
+              (color) => color.toLowerCase() === String(vote.mainColor || '').toLowerCase()
+            );
+            const voteBottom = ALLOWED_CATALOG_BOTTOMS.find(
+              (bottom) => bottom.name === vote.bottomName
+            );
+            const votePattern = ALLOWED_CATALOG_PATTERNS.includes(vote.patternId)
+              ? vote.patternId
+              : null;
+            if (!voteCostume || !voteColor || !voteBottom || !votePattern || typeof vote.liked !== 'boolean') {
+              return [];
+            }
+            return [{
+              costumeId: voteCostume,
+              mainColor: voteColor,
+              bottomName: voteBottom.name,
+              bottomColor: voteBottom.hex,
+              patternId: votePattern,
+              liked: vote.liked,
+            }];
+          })
+      : [];
     const isFormal = /chùa|đền|hôn lễ|nghi lễ|tế tự/i.test(event);
 
     const fallbackLooks = [
@@ -1436,7 +1466,22 @@ Hãy phân tích ngữ cảnh và trả về DUY NHẤT 1 chuỗi JSON theo đú
 
     const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-      return res.json({ looks: fallbackLooks, engine: 'V-Stylist Mix Engine' });
+      const scoreFallback = (look: (typeof fallbackLooks)[number]) =>
+        styleVotes.reduce((score: number, vote: any) => {
+          const direction = vote.liked ? 1 : -1;
+          return score +
+            (look.costumeId === vote.costumeId ? 3 : 0) * direction +
+            (look.mainColor === vote.mainColor ? 2 : 0) * direction +
+            (look.bottomName === vote.bottomName ? 2 : 0) * direction +
+            (look.patternId === vote.patternId ? 1 : 0) * direction;
+        }, 0);
+      const rankedLooks = [...fallbackLooks].sort(
+        (left, right) => scoreFallback(right) - scoreFallback(left)
+      );
+      return res.json({
+        looks: rankedLooks,
+        engine: styleVotes.length ? 'VAI Style Shuffle · gợi ý ngoại tuyến' : 'V-Stylist Mix Engine',
+      });
     }
 
     const lookSchema = {
@@ -1468,8 +1513,9 @@ Hãy phân tích ngữ cảnh và trả về DUY NHẤT 1 chuỗi JSON theo đú
         selectedEvent: event,
         gender,
         currentOutfit: { ...current, costumeId, mainColor, patternId, bottomName: currentBottom.name, accessoryIds },
+        stylePreferences: styleVotes,
         directions: fallbackLooks,
-        instruction: 'Return these same three direction ids in this order: heritage, everyday, editorial. You may refine catalog selections using only the exact ids and values shown in directions. Write all copy in Vietnamese. Keep styling notes warm, specific, and concise. Do not invent historical facts or claim a styling choice is universally correct. Acknowledge event context; keep ceremony suggestions respectful and optional. Modern streetwear is a valid choice for casual settings. Preserve selected costume in heritage and everyday directions. Keep each field under 36 words.',
+        instruction: 'Return these same three direction ids in this order: heritage, everyday, editorial. Use stylePreferences as explicit taste feedback: liked looks are positive signals and disliked looks are negative signals. Prefer colors, silhouettes, and garment combinations that resemble liked votes; avoid repeating disliked combinations when possible. You may refine catalog selections using only the exact ids and values shown in directions. Write all copy in Vietnamese. Keep styling notes warm, specific, and concise. Do not invent historical facts or claim a styling choice is universally correct. Acknowledge event context; keep ceremony suggestions respectful and optional. Modern streetwear is a valid choice for casual settings. Preserve selected costume in heritage and everyday directions. Keep each field under 36 words.',
       };
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',

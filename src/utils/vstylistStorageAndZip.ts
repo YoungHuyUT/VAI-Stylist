@@ -226,7 +226,7 @@ const baseFrameAnatomyCache = new Map<string, CachedBaseFrameAnatomy>();
 
 interface CachedBottomFramePixels {
   bd: Uint8ClampedArray;
-  btmCx: number;
+  startY: number;
 }
 const bottomFramePixelsCache = new Map<string, CachedBottomFramePixels>();
 
@@ -1614,6 +1614,34 @@ export async function resolveBottomTurntableFrames(
   }
 }
 
+async function getBottomFramePixels(
+  bottomId: string,
+  gender: 'male' | 'female',
+  frameIndex: number
+): Promise<CachedBottomFramePixels | null> {
+  const cacheKey = `${bottomId}|${gender}|${frameIndex}`;
+  const cached = bottomFramePixelsCache.get(cacheKey);
+  if (cached) return cached;
+
+  const frames = await resolveBottomTurntableFrames(bottomId, gender);
+  const frame = frames?.frames[frameIndex];
+  const canvas = frame ? getCachedRecoloredCanvas(frame) : null;
+  const context = canvas?.getContext('2d', { willReadFrequently: true });
+  if (!canvas || canvas.width !== 768 || canvas.height !== 1152 || !context) {
+    return null;
+  }
+
+  const startY = 460;
+  const pixels = context.getImageData(0, startY, 768, 1152 - startY).data;
+  if (bottomFramePixelsCache.size >= 12) {
+    const oldestKey = bottomFramePixelsCache.keys().next().value;
+    if (oldestKey) bottomFramePixelsCache.delete(oldestKey);
+  }
+  const lowerBodyPixels = { bd: pixels, startY };
+  bottomFramePixelsCache.set(cacheKey, lowerBodyPixels);
+  return lowerBodyPixels;
+}
+
 /**
  * Background idle pre-warmer: slices and caches adjacent costume turnaround sheets
  * during browser idle periods so switching costumes is instantaneous without reducing resolution.
@@ -1908,7 +1936,7 @@ export async function renderRecoloredTurntableFrame(params: {
   } = params;
 
   const accessoriesKey = [...accessories].sort().join(',');
-  const garmentCacheKey = `v45_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
+  const garmentCacheKey = `v46_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
     enableTrouserKey ? 1 : 0
   }|${patternId}|${hoaTietHex}|${patternConfig.scale.toFixed(
     2
@@ -1945,29 +1973,31 @@ export async function renderRecoloredTurntableFrame(params: {
     const isShortBottom =
       bottomId === 'quan-short-jeans-cat-ngan' ||
       bottomId === 'chan-vay-ngan-miniskirt';
-    let photographedLegUnderlay: Uint8ClampedArray | null = null;
+    const hasPhotoLowerSilhouette =
+      bottomId === 'quan-short-jeans-cat-ngan' ||
+      (gender === 'female' &&
+        (bottomId === 'thuong-lua-xep-ly' ||
+          bottomId === 'chan-vay-ngan-miniskirt'));
+    let photographedBottomUnderlay: CachedBottomFramePixels | null = null;
+    let photographedLegUnderlay: CachedBottomFramePixels | null = null;
+    if (hasPhotoLowerSilhouette) {
+      const sourceBottomId =
+        bottomId === 'chan-vay-ngan-miniskirt' ? 'thuong-lua-xep-ly' : bottomId;
+      photographedBottomUnderlay = await getBottomFramePixels(
+        sourceBottomId,
+        gender,
+        frameIndex
+      );
+    }
     if (isShortBottom) {
-      const underlayFrames = await resolveBottomTurntableFrames(bottomId, gender);
-      const underlayCanvas = underlayFrames
-        ? getCachedRecoloredCanvas(underlayFrames.frames[frameIndex])
-        : null;
-      if (
-        underlayCanvas &&
-        underlayCanvas.width === 768 &&
-        underlayCanvas.height === 1152
-      ) {
-        const underlayContext = underlayCanvas.getContext('2d', {
-          willReadFrequently: true,
-        });
-        if (underlayContext) {
-          photographedLegUnderlay = underlayContext.getImageData(
-            0,
-            0,
-            768,
-            1152
-          ).data;
-        }
-      }
+      photographedLegUnderlay =
+        bottomId === 'quan-short-jeans-cat-ngan'
+          ? photographedBottomUnderlay
+          : await getBottomFramePixels(
+              'quan-short-jeans-cat-ngan',
+              gender,
+              frameIndex
+            );
     }
     const isModernTrouserBottom =
       bottomId === 'quan-jeans-ong-suong' ||
@@ -3112,14 +3142,13 @@ export async function renderRecoloredTurntableFrame(params: {
         const rSpan = Math.max(40, rMax - rMin);
 
         // ============================================================================
-        // 3A. REAL-WORLD 3D ANATOMICAL LEG & GARMENT SILHOUETTE LOGIC:
+        // 3A. LOWER-BODY MASK AND FALLBACK SHADING:
         // - When `Quần Short Jeans` (`quan-short-jeans-cat-ngan`) or `Chân Váy Ngắn` (`chan-vay-ngan-miniskirt`)
         //   is chosen:
         //   * The short bottom ends high on the upper thigh (`shortGarmentHemY ~ 724..738`).
         //   * If the upper tunic (`Áo`) is longer than `shortGarmentHemY` (`colTunicHemY > shortGarmentHemY`),
         //     the tunic naturally covers the shorts so YOU DO NOT SEE THE SHORTS below the tunic hem!
-        //   * Below `shortGarmentHemY` (`y > shortGarmentHemY` down to the shoes), the wide trouser/skirt fabric
-        //     is removed and replaced by TWO SCULPTED 3D BARE HUMAN LEGS (`da đùi, đầu gối, bắp chân`)!
+        //   * Below `shortGarmentHemY`, a same-angle leg photo is used when available; the shape below is fallback.
         // - When a 2-leg trouser (`Quần Lụa`, `Quần Lĩnh`, `Quần Jeans`, `Quần Kaki`) is chosen on a
         //   1-piece skirt base costume (`isSkirtBaseCostume`), or when `Quần Jeans Ống Suông` is chosen,
         //   the silhouette is tailored into two distinct trouser legs!
@@ -3174,13 +3203,21 @@ export async function renderRecoloredTurntableFrame(params: {
         if (isShortBottom && y > shortGarmentHemY) {
           // Reuse same-angle skin pixels from the matching 360° shorts sheet.
           if (photographedLegUnderlay && y < footBottomY - 82) {
-            const underlayIdx = idx;
-            const underlayR = photographedLegUnderlay[underlayIdx];
-            const underlayG = photographedLegUnderlay[underlayIdx + 1];
-            const underlayB = photographedLegUnderlay[underlayIdx + 2];
-            const underlayA = photographedLegUnderlay[underlayIdx + 3];
+            const underlayIdx =
+              ((y - photographedLegUnderlay.startY) * w + x) * 4;
+            const underlayR = photographedLegUnderlay.bd[underlayIdx];
+            const underlayG = photographedLegUnderlay.bd[underlayIdx + 1];
+            const underlayB = photographedLegUnderlay.bd[underlayIdx + 2];
+            const underlayA = photographedLegUnderlay.bd[underlayIdx + 3];
+            const underlayHsv = rgbToHsv(
+              underlayR / 255,
+              underlayG / 255,
+              underlayB / 255
+            );
             const underlaySkin =
               underlayA > 36 &&
+              underlayHsv.h < 0.12 &&
+              underlayHsv.s > 0.12 &&
               underlayR > underlayG + 7 &&
               underlayG > underlayB + 3 &&
               underlayR - underlayB > 20 &&
@@ -3197,8 +3234,7 @@ export async function renderRecoloredTurntableFrame(params: {
             continue;
           }
 
-          // BARE THIGHS, KNEES & CALVES ZONE (`da đùi, đầu gối, bắp chân`):
-          // Compute anatomical human leg half-width from upper thigh (legProg=0) -> knee (0.42) -> calf (0.64) -> ankle (1.0)
+          // Fallback leg silhouette if the matching photographed underlay is unavailable.
           const thighTaper = (1.0 - legProg) * (gender === 'female' ? 11.5 : 12.5);
           const kneeIndent =
             -Math.exp(-Math.pow((legProg - 0.42) / 0.11, 2)) * 2.6;
@@ -3471,6 +3507,73 @@ export async function renderRecoloredTurntableFrame(params: {
       }
     }
   }
+
+    if (photographedBottomUnderlay && hasPhotoLowerSilhouette) {
+      const isMiniSkirt = bottomId === 'chan-vay-ngan-miniskirt';
+      const isShortJeans = bottomId === 'quan-short-jeans-cat-ngan';
+      const footwearStartY = footBottomY - 82;
+      for (let x = 1; x < w - 1; x++) {
+        const topHemY = getTunicHemLimitY(x);
+        const dx = Math.min(1, Math.abs((x - bodyCenterX) / 92));
+        const shortsHemY = Math.round(724 - dx * dx * 7);
+        const miniHemY = Math.round(
+          738 + Math.cos(dx * Math.PI * 0.5) * 4
+        );
+        const sourceEndY = isMiniSkirt
+          ? miniHemY
+          : isShortJeans
+            ? shortsHemY
+            : footwearStartY;
+        const startY = topHemY + 1;
+        const endY = Math.min(h - 1, footwearStartY, sourceEndY);
+
+        for (let y = startY; y <= endY; y++) {
+          const idx = (y * w + x) * 4;
+          const sourceIdx =
+            ((y - photographedBottomUnderlay.startY) * w + x) * 4;
+          const sourceR = photographedBottomUnderlay.bd[sourceIdx];
+          const sourceG = photographedBottomUnderlay.bd[sourceIdx + 1];
+          const sourceB = photographedBottomUnderlay.bd[sourceIdx + 2];
+          const sourceA = photographedBottomUnderlay.bd[sourceIdx + 3];
+          if (sourceA < 32) {
+            data[idx + 3] = 0;
+            continue;
+          }
+
+          const sourceHsv = rgbToHsv(
+            sourceR / 255,
+            sourceG / 255,
+            sourceB / 255
+          );
+          const sourceSkin =
+            sourceHsv.h < 0.12 &&
+            sourceHsv.s > 0.12 &&
+            sourceR > sourceG + 7 &&
+            sourceG > sourceB + 3 &&
+            sourceR - sourceB > 20 &&
+            sourceR - sourceG < 100;
+
+          if (sourceSkin) {
+            data[idx] = sourceR;
+            data[idx + 1] = sourceG;
+            data[idx + 2] = sourceB;
+            data[idx + 3] = sourceA;
+            continue;
+          }
+
+          const shade = 0.42 + sourceHsv.v * 0.58;
+          const tinted = hsvToRgb(
+            targetQuanHsv.h,
+            targetQuanHsv.s,
+            Math.min(1, targetQuanHsv.v * shade)
+          );
+          data[idx] = Math.round(tinted.r * 255);
+          data[idx + 1] = Math.round(tinted.g * 255);
+          data[idx + 2] = Math.round(tinted.b * 255);
+          data[idx + 3] = sourceA;
+        }
+      }
+    }
 
     cachedGarment = {
       w,

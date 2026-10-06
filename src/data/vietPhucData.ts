@@ -76,7 +76,7 @@ export const BUILTIN_BOTTOM_TURNAROUND_SHEETS: Record<string, string> = {
   'quan-kaki-ong-rong-male': turnaroundPhotorealNamFusionJeans,
   'quan-short-jeans-cat-ngan-female': turnaroundPhotorealFusionShorts,
   'quan-short-jeans-cat-ngan-male': turnaroundPhotorealNamFusionShorts,
-  'chan-vay-ngan-miniskirt-female': turnaroundPhotorealFusionShorts,
+  'chan-vay-ngan-miniskirt-female': turnaroundPhotorealFusionThuongLua,
   'chan-vay-ngan-miniskirt-male': turnaroundPhotorealNamFusionShorts,
   'thuong-lua-xep-ly-female': turnaroundPhotorealFusionThuongLua,
   'thuong-lua-xep-ly-male': turnaroundPhotorealFusionThuongLua,
@@ -1605,4 +1605,3 @@ export function buildVPhucPrecisionAudit(params: {
       'Chỉ nạp trực tiếp tệp mô hình /public/models/{costumeId}-{gender}.glb qua GLTFLoader + DRACOLoader + MeshoptDecoder (chuẩn hóa chiều cao 1.75m, chân tại y=0, tuyệt đối không dùng hình học nguyên thủy hay nhân vật Mixamo cũ). Chất liệu vải giữ nguyên texture gốc với anisotropy >= 8, roughness >= 0.65, metalness = 0, sheen ~ 0.5 (sheenRoughness 0.6), chỉ bật metalness cho các mesh có tên chứa "button", và đổi màu tức thì (<100ms) qua shader onBeforeCompile hue-key (±25°, saturation >= 0.3).',
   };
 }
-

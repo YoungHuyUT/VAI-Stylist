@@ -26,6 +26,7 @@ export interface RemixStudioRequest {
   theme: RemixThemeId;
   gender: 'male' | 'female';
   event: string;
+  styleVotes?: StylePreferenceVote[];
   currentOutfit: {
     costumeId: string;
     mainColor: string;
@@ -34,6 +35,15 @@ export interface RemixStudioRequest {
     accessoryIds: string[];
     remix: number;
   };
+}
+
+export interface StylePreferenceVote {
+  costumeId: string;
+  mainColor: string;
+  bottomName: string;
+  bottomColor: string;
+  patternId: PatternId;
+  liked: boolean;
 }
 
 export interface RemixStudioResponse {
