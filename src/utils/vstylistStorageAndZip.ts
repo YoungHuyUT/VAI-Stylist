@@ -1975,6 +1975,7 @@ export async function renderRecoloredTurntableFrame(params: {
       bottomId === 'chan-vay-ngan-miniskirt';
     const hasPhotoLowerSilhouette =
       bottomId === 'quan-short-jeans-cat-ngan' ||
+      bottomId === 'quan-jeans-ong-suong' ||
       (gender === 'female' &&
         (bottomId === 'thuong-lua-xep-ly' ||
           bottomId === 'chan-vay-ngan-miniskirt'));
@@ -3157,8 +3158,9 @@ export async function renderRecoloredTurntableFrame(params: {
           0.0,
           Math.min(1.0, (y - 715) / Math.max(1, shoeHardStopY - 715))
         );
-        const hipLeftX = bodyCenterX - (gender === 'female' ? 25 : 27);
-        const hipRightX = bodyCenterX + (gender === 'female' ? 25 : 27);
+        const hipSpan = gender === 'female' ? 25 : (isSideView ? 16 : 32);
+        const hipLeftX = bodyCenterX - hipSpan;
+        const hipRightX = bodyCenterX + hipSpan;
         const leftBoneX =
           hipLeftX * (1.0 - legProg) + leftLegFootX * legProg;
         const rightBoneX =
@@ -3201,55 +3203,26 @@ export async function renderRecoloredTurntableFrame(params: {
             : 1.0;
 
         if (isShortBottom && y > shortGarmentHemY) {
-          // Reuse same-angle skin pixels from the matching 360° shorts sheet.
-          if (photographedLegUnderlay && y < footBottomY - 82) {
-            const underlayIdx =
-              ((y - photographedLegUnderlay.startY) * w + x) * 4;
-            const underlayR = photographedLegUnderlay.bd[underlayIdx];
-            const underlayG = photographedLegUnderlay.bd[underlayIdx + 1];
-            const underlayB = photographedLegUnderlay.bd[underlayIdx + 2];
-            const underlayA = photographedLegUnderlay.bd[underlayIdx + 3];
-            const underlayHsv = rgbToHsv(
-              underlayR / 255,
-              underlayG / 255,
-              underlayB / 255
-            );
-            const underlaySkin =
-              underlayA > 36 &&
-              underlayHsv.h < 0.12 &&
-              underlayHsv.s > 0.12 &&
-              underlayR > underlayG + 7 &&
-              underlayG > underlayB + 3 &&
-              underlayR - underlayB > 20 &&
-              underlayR - underlayG < 100;
-
-            if (underlaySkin) {
-              data[idx] = underlayR;
-              data[idx + 1] = underlayG;
-              data[idx + 2] = underlayB;
-              data[idx + 3] = underlayA;
-            } else {
-              data[idx + 3] = 0;
-            }
-            continue;
-          }
-
-          // Fallback leg silhouette if the matching photographed underlay is unavailable.
-          const thighTaper = (1.0 - legProg) * (gender === 'female' ? 11.5 : 12.5);
+          // Anatomical leg silhouette for shorts and skirts:
+          // Male thighs require fuller muscular volume and broader upper taper to match natural body anatomy.
+          const baseHalfW = isSideView
+            ? (gender === 'female' ? 14.5 : 19.5)
+            : (gender === 'female' ? 12.8 : 22.5);
+          const thighTaper = (1.0 - legProg) * (gender === 'female' ? 11.5 : 18.0);
           const kneeIndent =
-            -Math.exp(-Math.pow((legProg - 0.42) / 0.11, 2)) * 2.6;
+            -Math.exp(-Math.pow((legProg - 0.42) / 0.10, 2)) * (gender === 'female' ? 2.6 : 3.0);
           const calfMuscle =
-            Math.exp(-Math.pow((legProg - 0.64) / 0.16, 2)) * 3.6;
+            Math.exp(-Math.pow((legProg - 0.64) / 0.14, 2)) * (gender === 'female' ? 3.6 : 5.2);
           const bareLegHalfW =
-            (isSideView ? 14.5 : gender === 'female' ? 12.8 : 13.8) +
+            baseHalfW +
             thighTaper +
             kneeIndent +
             calfMuscle;
 
           // At the ankle/shoe junction (`y >= shoeCuffZoneStartY`), smoothly expand to preserve the intact shoe silhouette
           const shoeKeepWeight = 1.0 - trouserBlendWeight;
-          if (distFromBone > bareLegHalfW + 1.8 && shoeKeepWeight < 0.05) {
-            // Trim away loose wide trouser/skirt fabric outside the bare legs!
+          if (distFromBone > bareLegHalfW + 2.0 && shoeKeepWeight < 0.05) {
+            // Trim away loose wide trouser/skirt fabric outside the bare legs
             data[idx + 3] = 0;
             continue;
           }
@@ -3258,8 +3231,41 @@ export async function renderRecoloredTurntableFrame(params: {
           if (distFromBone > bareLegHalfW - 1.2 && shoeKeepWeight < 0.5) {
             legSilhouetteAlpha = Math.max(
               shoeKeepWeight,
-              Math.min(1.0, (bareLegHalfW + 1.8 - distFromBone) / 3.0)
+              Math.min(1.0, (bareLegHalfW + 2.0 - distFromBone) / 3.2)
             );
+          }
+
+          // Sample matching turnaround underlay skin if available
+          let underlayR = 0;
+          let underlayG = 0;
+          let underlayB = 0;
+          let underlayIsSkin = false;
+          if (photographedLegUnderlay && y < footBottomY - 82) {
+            const underlayIdx =
+              ((y - photographedLegUnderlay.startY) * w + x) * 4;
+            const uR = photographedLegUnderlay.bd[underlayIdx];
+            const uG = photographedLegUnderlay.bd[underlayIdx + 1];
+            const uB = photographedLegUnderlay.bd[underlayIdx + 2];
+            const uA = photographedLegUnderlay.bd[underlayIdx + 3];
+            if (uA > 30) {
+              const uHsv = rgbToHsv(uR / 255, uG / 255, uB / 255);
+              const uLum = uR * 0.299 + uG * 0.587 + uB * 0.114;
+              if (
+                uHsv.h >= 0.01 &&
+                uHsv.h < 0.18 &&
+                uHsv.s > 0.04 &&
+                uHsv.s < 0.78 &&
+                uR > uG + 1 &&
+                uG >= uB - 4 &&
+                uR - uB > 4 &&
+                uLum > 50
+              ) {
+                underlayR = uR;
+                underlayG = uG;
+                underlayB = uB;
+                underlayIsSkin = true;
+              }
+            }
           }
 
           // 3D Cylindrical Human Skin Shading (Thigh -> Knee -> Shin/Calf) matched to character's natural skin tone
@@ -3297,19 +3303,25 @@ export async function renderRecoloredTurntableFrame(params: {
             tunicShadow *
             shortsShadow;
 
-          const skinR = Math.min(1.0, baseSkinR * cylSkinShade + shinHighlight);
-          const skinG = Math.min(
+          let finalLegR = Math.min(1.0, baseSkinR * cylSkinShade + shinHighlight);
+          let finalLegG = Math.min(
             1.0,
             baseSkinG * (cylSkinShade * 0.985) + shinHighlight * 0.88
           );
-          const skinB = Math.min(
+          let finalLegB = Math.min(
             1.0,
             baseSkinB * (cylSkinShade * 0.965) + shinHighlight * 0.78
           );
 
-          const outR = r * (1.0 - trouserBlendWeight) + skinR * trouserBlendWeight;
-          const outG = g * (1.0 - trouserBlendWeight) + skinG * trouserBlendWeight;
-          const outB = b * (1.0 - trouserBlendWeight) + skinB * trouserBlendWeight;
+          if (underlayIsSkin) {
+            finalLegR = (underlayR / 255) * 0.65 + finalLegR * 0.35;
+            finalLegG = (underlayG / 255) * 0.65 + finalLegG * 0.35;
+            finalLegB = (underlayB / 255) * 0.65 + finalLegB * 0.35;
+          }
+
+          const outR = r * (1.0 - trouserBlendWeight) + finalLegR * trouserBlendWeight;
+          const outG = g * (1.0 - trouserBlendWeight) + finalLegG * trouserBlendWeight;
+          const outB = b * (1.0 - trouserBlendWeight) + finalLegB * trouserBlendWeight;
 
           data[idx] = Math.min(255, Math.max(0, Math.round(outR * 255)));
           data[idx + 1] = Math.min(255, Math.max(0, Math.round(outG * 255)));
@@ -3326,13 +3338,13 @@ export async function renderRecoloredTurntableFrame(params: {
           bottomId === 'quan-short-jeans-cat-ngan' && y <= shortGarmentHemY;
         if ((isStraightJeans || isShortJeansUpper) && trouserBlendWeight > 0.5) {
           const tailoredHalfW = isSideView
-            ? 24.0 - legProg * 4.5
-            : 23.5 - legProg * 5.0;
+            ? (gender === 'female' ? 26 : 25) - legProg * 2.5
+            : (gender === 'female' ? 29 : 27) - legProg * (gender === 'female' ? 4.5 : 4);
           const inseamGapHalfW = isSideView
             ? 0
             : isShortJeansUpper
             ? 2.2
-            : 2.8 + legProg * 2.5;
+            : 3.5 + legProg * 2.8;
           const distFromCenterInseam = Math.abs(x - midLegsX);
           if (
             distFromBone > tailoredHalfW + 1.5 ||
@@ -3519,10 +3531,10 @@ export async function renderRecoloredTurntableFrame(params: {
         const miniHemY = Math.round(
           738 + Math.cos(dx * Math.PI * 0.5) * 4
         );
-        const sourceEndY = isMiniSkirt
-          ? miniHemY
-          : isShortJeans
-            ? shortsHemY
+      const sourceEndY = isMiniSkirt
+        ? miniHemY
+        : isShortJeans
+          ? shortsHemY
             : footwearStartY;
         const startY = topHemY + 1;
         const endY = Math.min(h - 1, footwearStartY, sourceEndY);

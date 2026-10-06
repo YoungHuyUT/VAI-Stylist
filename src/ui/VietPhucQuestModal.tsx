@@ -1,26 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ArrowRight,
   BadgeCheck,
-  BookOpen,
-  Camera,
   Check,
-  CheckCircle2,
   Compass,
   Lightbulb,
-  LoaderCircle,
   RotateCcw,
-  Share2,
   Shirt,
   Sparkles,
   Trophy,
   X,
+  ArrowRight,
+  ArrowLeft,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { VIET_PHUC_QUEST_STAGES } from '../data/vietPhucQuest';
 import { culturalData } from '../data/culturalDataLoader';
 import { TOP_GARMENTS } from '../data/vietPhucData';
 
-const PROGRESS_KEY = 'vai-stylist:quest-progress:v1';
+const PROGRESS_KEY = 'vai-stylist:quest-progress:v2';
 
 function readSavedProgress(): string[] {
   if (typeof window === 'undefined') return [];
@@ -48,96 +46,54 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
   isOpen,
   onClose,
   onApplyCostume,
-  onOpenScan,
 }) => {
   const [completedIds, setCompletedIds] = useState<string[]>(readSavedProgress);
-  const [activeStageId, setActiveStageId] = useState<string>(
-    VIET_PHUC_QUEST_STAGES[0].id
-  );
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
-  const [hintText, setHintText] = useState<string | null>(null);
-  const [isLoadingHint, setIsLoadingHint] = useState(false);
-  const [guideEngine, setGuideEngine] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const hintRequestId = useRef(0);
+  const [showHint, setShowHint] = useState<boolean>(false);
 
-  const activeStage =
-    VIET_PHUC_QUEST_STAGES.find((stage) => stage.id === activeStageId) ||
-    VIET_PHUC_QUEST_STAGES[0];
+  const activeStage = VIET_PHUC_QUEST_STAGES[currentIndex] || VIET_PHUC_QUEST_STAGES[0];
   const costume = culturalData.costumes[activeStage.costumeId];
   const stageGarment = TOP_GARMENTS.find(
     (garment) => garment.id === activeStage.costumeId
   );
-  const isComplete = completedIds.length === VIET_PHUC_QUEST_STAGES.length;
   const isCurrentComplete = completedIds.includes(activeStage.id);
-  const isAnswerCorrect = selectedChoiceId === activeStage.correctChoiceId;
-  const correctChoice = activeStage.choices.find(
-    (choice) => choice.id === activeStage.correctChoiceId
-  );
+  const isAnswered = selectedChoiceId !== null || isCurrentComplete;
+  const isAnswerCorrect =
+    selectedChoiceId === activeStage.correctChoiceId || isCurrentComplete;
+  const isAllComplete = completedIds.length === VIET_PHUC_QUEST_STAGES.length;
   const progressPercent = Math.round(
     (completedIds.length / VIET_PHUC_QUEST_STAGES.length) * 100
   );
 
   useEffect(() => {
-    hintRequestId.current += 1;
     if (!isOpen) return;
-    setActiveStageId(
-      VIET_PHUC_QUEST_STAGES.find((stage) => !completedIds.includes(stage.id))?.id ||
-        VIET_PHUC_QUEST_STAGES[0].id
+    const firstIncompleteIdx = VIET_PHUC_QUEST_STAGES.findIndex(
+      (stage) => !completedIds.includes(stage.id)
     );
+    setCurrentIndex(firstIncompleteIdx >= 0 ? firstIncompleteIdx : 0);
     setSelectedChoiceId(null);
-    setHintText(null);
-    setGuideEngine(null);
-    setIsLoadingHint(false);
+    setShowHint(false);
   }, [isOpen]);
 
   useEffect(() => {
     try {
       window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(completedIds));
     } catch {
-      // The quest still works when browser storage is unavailable.
+      // Ignore if storage is disabled
     }
   }, [completedIds]);
 
   if (!isOpen) return null;
 
-  const selectStage = (stageId: string) => {
-    hintRequestId.current += 1;
-    setActiveStageId(stageId);
+  const goToStage = (idx: number) => {
+    setCurrentIndex(idx);
     setSelectedChoiceId(null);
-    setHintText(null);
-    setGuideEngine(null);
-    setIsLoadingHint(false);
+    setShowHint(false);
   };
 
-  const requestHint = async () => {
-    const requestId = ++hintRequestId.current;
-    const stageId = activeStage.id;
-    setIsLoadingHint(true);
-    setHintText(activeStage.hint);
-    try {
-      const response = await fetch('/api/quest-guide', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stageId }),
-      });
-      if (!response.ok) throw new Error('Quest guide unavailable');
-      const result = await response.json();
-      if (requestId !== hintRequestId.current) return;
-      if (typeof result.hint === 'string' && result.hint.trim()) {
-        setHintText(result.hint.trim());
-      }
-      setGuideEngine(result.engine || 'Gợi ý Gemini');
-    } catch {
-      if (requestId !== hintRequestId.current) return;
-      setGuideEngine('Manh mối trong sổ tư liệu');
-    } finally {
-      if (requestId === hintRequestId.current) setIsLoadingHint(false);
-    }
-  };
-
-  const handleAnswer = (choiceId: string) => {
-    if (isCurrentComplete || isAnswerCorrect) return;
+  const handleSelectChoice = (choiceId: string) => {
+    if (isCurrentComplete) return;
     setSelectedChoiceId(choiceId);
     if (choiceId === activeStage.correctChoiceId) {
       setCompletedIds((current) =>
@@ -146,330 +102,321 @@ export const VietPhucQuestModal: React.FC<VietPhucQuestModalProps> = ({
     }
   };
 
-  const advanceStage = () => {
-    const nextStage = VIET_PHUC_QUEST_STAGES.find(
-      (stage) => !completedIds.includes(stage.id)
-    );
-    if (nextStage) selectStage(nextStage.id);
-  };
-
-  const resetProgress = () => {
-    hintRequestId.current += 1;
-    setCompletedIds([]);
-    setSelectedChoiceId(null);
-    setHintText(null);
-    setGuideEngine(null);
-    setActiveStageId(VIET_PHUC_QUEST_STAGES[0].id);
-    setIsLoadingHint(false);
-  };
-
-  const shareProgress = async () => {
-    const message = `Tôi đã khám phá ${completedIds.length}/${VIET_PHUC_QUEST_STAGES.length} dấu ấn trong Việt Phục Quest. Đến lượt bạn!`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Việt Phục Quest', text: message });
-      } else {
-        await navigator.clipboard.writeText(message);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1800);
-      }
-    } catch {
-      // Sharing is optional; leave the quest state untouched if it is dismissed.
+  const handleNext = () => {
+    if (currentIndex < VIET_PHUC_QUEST_STAGES.length - 1) {
+      goToStage(currentIndex + 1);
     }
   };
 
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      goToStage(currentIndex - 1);
+    }
+  };
+
+  const handleReset = () => {
+    setCompletedIds([]);
+    setCurrentIndex(0);
+    setSelectedChoiceId(null);
+    setShowHint(false);
+  };
+
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#1C1917]/70 backdrop-blur-sm p-3 sm:p-6">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#1C1917]/75 backdrop-blur-sm p-3 sm:p-5">
       <section
         role="dialog"
         aria-modal="true"
-        aria-labelledby="quest-title"
-        className="relative flex max-h-[min(900px,94vh)] w-full max-w-5xl flex-col overflow-hidden border border-[#CBB991] bg-[#F4EFE5] text-[#1C1917] shadow-2xl"
+        aria-labelledby="quiz-title"
+        className="relative flex max-h-[min(860px,94vh)] w-full max-w-3xl flex-col overflow-hidden border border-[#CBB991] bg-[#FBF9F5] text-[#1C1917] shadow-2xl"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-[#D8CDB8] bg-[#EEE5D5] px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#CBB991] bg-[#FBF9F5] text-[#9A3412]">
-              <Compass className="h-5 w-5" />
+        {/* Header: Clean & Minimalist */}
+        <div className="flex shrink-0 items-center justify-between border-b border-[#DFD8C8] bg-[#F4EFE5] px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#9A3412] text-[#FDE68A] shadow-xs">
+              <Compass className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8B5E34]">
-                Chơi · khám phá · phối đồ
-              </p>
-              <h2 id="quest-title" className="font-editorial text-lg font-bold sm:text-xl">
-                Việt Phục Quest
+              <h2 id="quiz-title" className="font-editorial text-base sm:text-lg font-bold text-[#1C1917]">
+                Khảo Cứu Điển Tích Việt Phục
               </h2>
+              <p className="text-[10px] text-[#786044] font-medium">
+                10 câu đố lịch sử · Cải cách y phục & Triết lý cổ phong
+              </p>
             </div>
           </div>
+
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-[#EBE4D5] border border-[#D5CBB4] text-[11px] font-bold text-[#78350F]">
+              <Trophy className="w-3.5 h-3.5 text-[#9A3412]" />
+              <span>
+                {completedIds.length}/{VIET_PHUC_QUEST_STAGES.length} câu
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Đóng Quiz"
+              className="flex h-8 w-8 items-center justify-center border border-[#DFD8C8] bg-[#FBF9F5] text-[#686259] hover:text-[#1C1917] hover:border-[#1C1917] transition-colors cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="h-1 bg-[#E5DDCB] w-full">
+          <div
+            className="h-full bg-[#9A3412] transition-all duration-300"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+
+        {/* Question Selector Tabs (1 to 10 Pills) */}
+        <div className="flex items-center justify-between gap-1 overflow-x-auto border-b border-[#DFD8C8] bg-[#EFE9DC] px-3 py-2 shrink-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {VIET_PHUC_QUEST_STAGES.map((stage, idx) => {
+              const isDone = completedIds.includes(stage.id);
+              const isCurrent = idx === currentIndex;
+              return (
+                <button
+                  key={stage.id}
+                  type="button"
+                  onClick={() => goToStage(idx)}
+                  className={`h-7 min-w-[28px] px-1.5 flex items-center justify-center text-xs font-mono-tabular font-bold transition-all cursor-pointer ${
+                    isCurrent
+                      ? 'bg-[#9A3412] text-white shadow-xs'
+                      : isDone
+                      ? 'bg-[#2E7D5B] text-white'
+                      : 'bg-[#DFD8C8] text-[#57534E] hover:bg-[#D5CBB4]'
+                  }`}
+                  title={`${stage.title} (${stage.era})`}
+                >
+                  {isDone && !isCurrent ? <Check className="w-3 h-3" /> : idx + 1}
+                </button>
+              );
+            })}
+          </div>
+
           <button
             type="button"
-            onClick={onClose}
-            aria-label="Đóng Việt Phục Quest"
-            className="flex h-10 w-10 items-center justify-center border border-[#D8CDB8] bg-[#FBF9F5] transition hover:border-[#9A3412]"
+            onClick={handleReset}
+            className="text-[10px] text-[#786044] hover:text-[#9A3412] flex items-center gap-1 transition-colors shrink-0 ml-2 cursor-pointer font-medium"
+            title="Làm lại từ đầu"
           >
-            <X className="h-4 w-4" />
+            <RotateCcw className="w-3 h-3" />
+            <span className="hidden sm:inline">Chơi lại</span>
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
-          <aside className="flex max-h-[260px] min-h-0 flex-col border-b border-[#D8CDB8] bg-[#EAE1D0] lg:max-h-none lg:border-b-0 lg:border-r">
-            <div className="p-4 sm:p-5">
-              <div className="flex items-end justify-between">
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          {isAllComplete && isAnswerCorrect && (
+            <div className="p-3 bg-[#ECFDF5] border border-[#10B981]/40 text-[#065F46] flex items-center justify-between gap-2 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎉</span>
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#786044]">
-                    Hành trình của bạn
-                  </p>
-                  <p className="mt-1 font-editorial text-3xl font-bold">
-                    {completedIds.length}
-                    <span className="text-lg text-[#8A8173]">/{VIET_PHUC_QUEST_STAGES.length}</span>
+                  <strong className="text-xs font-bold block">
+                    Xuất sắc! Bạn đã hoàn thành 100% Khảo Cứu Việt Phục
+                  </strong>
+                  <p className="text-[11px] text-[#047857]">
+                    Danh hiệu: Bậc Thầy Điển Tích & Sử Liệu Cổ Phong.
                   </p>
                 </div>
-                <Trophy className="mb-1 h-6 w-6 text-[#A33B1E]" />
               </div>
-              <div className="mt-3 h-2 overflow-hidden bg-[#D6CBB7]">
-                <div
-                  className="h-full bg-[#A33B1E] transition-[width] duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-[#655B4D]">
-                Giải mật thư, đọc nguồn, rồi thử bộ đồ ngay trên mẫu 3D.
-              </p>
               <button
                 type="button"
-                onClick={onOpenScan}
-                className="mt-4 flex w-full items-center justify-center gap-2 border border-[#9A3412] bg-[#9A3412] px-3 py-2.5 text-xs font-bold text-white transition hover:bg-[#7C2D12]"
+                onClick={() => onApplyCostume(activeStage.costumeId)}
+                className="px-2.5 py-1 text-[11px] font-bold bg-[#047857] hover:bg-[#065F46] text-white transition-colors cursor-pointer shrink-0"
               >
-                <Camera className="h-4 w-4" /> Soi ảnh Việt Phục bằng AI
+                Mặc Lên 3D
               </button>
             </div>
+          )}
 
-            <nav aria-label="Các chặng Quest" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">
-              {VIET_PHUC_QUEST_STAGES.map((stage, index) => {
-                const complete = completedIds.includes(stage.id);
-                const active = stage.id === activeStage.id;
-                return (
-                  <button
-                    key={stage.id}
-                    type="button"
-                    onClick={() => selectStage(stage.id)}
-                    className={`flex w-full items-center gap-3 border px-3 py-2.5 text-left transition ${
-                      active
-                        ? 'border-[#9A3412] bg-[#FBF9F5] shadow-sm'
-                        : 'border-transparent hover:border-[#D0C2AA] hover:bg-white/50'
+          {/* Era and Chapter Badge */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#EAE2D2] text-[#78350F] border border-[#D8CDB8]">
+                {activeStage.era}
+              </span>
+              <span className="text-xs text-[#686259] font-medium">
+                {activeStage.chapter}
+              </span>
+            </div>
+
+            {isCurrentComplete && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#2E7D5B]">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Đã hoàn thành
+              </span>
+            )}
+          </div>
+
+          {/* Question Title & Prompt */}
+          <div className="space-y-1.5">
+            <h3 className="text-base sm:text-lg font-bold font-editorial text-[#1C1917] leading-snug">
+              Câu {currentIndex + 1}: {activeStage.question}
+            </h3>
+          </div>
+
+          {/* Multiple Choices */}
+          <div className="space-y-2 pt-1">
+            {activeStage.choices.map((choice, cIdx) => {
+              const letter = String.fromCharCode(65 + cIdx);
+              const isSelected = selectedChoiceId === choice.id;
+              const isCorrectChoice = choice.id === activeStage.correctChoiceId;
+              const showResult = isAnswered;
+
+              let choiceStyle =
+                'border-[#DFD8C8] bg-[#F4EFE5] text-[#1C1917] hover:border-[#9A3412] hover:bg-[#FAF7F2]';
+
+              if (showResult) {
+                if (isCorrectChoice) {
+                  choiceStyle =
+                    'border-[#10B981] bg-[#ECFDF5] text-[#065F46] font-semibold';
+                } else if (isSelected && !isCorrectChoice) {
+                  choiceStyle =
+                    'border-[#EF4444] bg-[#FEF2F2] text-[#991B1B]';
+                } else {
+                  choiceStyle = 'border-[#DFD8C8] bg-[#F4EFE5]/50 text-[#78716C] opacity-60';
+                }
+              }
+
+              return (
+                <button
+                  key={choice.id}
+                  type="button"
+                  disabled={isCurrentComplete}
+                  onClick={() => handleSelectChoice(choice.id)}
+                  className={`w-full p-3 text-left border flex items-start gap-3 transition-all cursor-pointer ${choiceStyle}`}
+                >
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center text-xs font-bold font-mono-tabular ${
+                      showResult && isCorrectChoice
+                        ? 'bg-[#10B981] text-white'
+                        : showResult && isSelected && !isCorrectChoice
+                        ? 'bg-[#EF4444] text-white'
+                        : 'bg-[#DFD8C8] text-[#1C1917]'
                     }`}
                   >
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${complete ? 'bg-[#2E7D5B] text-white' : active ? 'bg-[#9A3412] text-white' : 'bg-[#D8CDB8] text-[#5D5143]'}`}>
-                      {complete ? <Check className="h-3.5 w-3.5" /> : `0${index + 1}`}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold">{stage.title}</span>
-                      <span className="mt-0.5 block truncate text-[10px] text-[#776B5B]">{stage.chapter}</span>
-                    </span>
+                    {showResult && isCorrectChoice ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : showResult && isSelected && !isCorrectChoice ? (
+                      <XCircle className="w-3.5 h-3.5" />
+                    ) : (
+                      letter
+                    )}
+                  </span>
+                  <span className="text-xs sm:text-sm leading-relaxed pt-0.5">
+                    {choice.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Learning Note & Historical Explanation */}
+          {isAnswered && (
+            <div
+              className={`p-3.5 sm:p-4 border text-xs leading-relaxed space-y-2 animate-in fade-in duration-200 ${
+                isAnswerCorrect
+                  ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#14532D]'
+                  : 'bg-[#FFFBEB] border-[#FDE68A] text-[#78350F]'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px]">
+                <BadgeCheck className="w-4 h-4 text-[#2E7D5B]" />
+                <span>Điển tích lịch sử & Sử liệu</span>
+              </div>
+              <p className="leading-relaxed text-[#1C1917] font-normal">
+                {activeStage.learningNote}
+              </p>
+              <div className="pt-1.5 border-t border-black/10 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#57534E]">
+                <span>Nguồn: {activeStage.sourceLabel}</span>
+                {stageGarment && (
+                  <button
+                    type="button"
+                    onClick={() => onApplyCostume(activeStage.costumeId)}
+                    className="font-bold text-[#9A3412] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Shirt className="w-3 h-3" />
+                    <span>Thử {stageGarment.baseName} lên 3D Studio →</span>
                   </button>
-                );
-              })}
-            </nav>
-
-            <div className="flex items-center justify-between border-t border-[#D8CDB8] p-3">
-              <span className="flex items-center gap-1.5 text-[10px] text-[#736653]">
-                <BadgeCheck className="h-3.5 w-3.5 text-[#2E7D5B]" /> Đọc rõ nguồn & diễn giải
-              </span>
-              <button
-                type="button"
-                onClick={resetProgress}
-                className="inline-flex items-center gap-1 text-[10px] text-[#8A5B3D] hover:text-[#9A3412]"
-              >
-                <RotateCcw className="h-3 w-3" /> Chơi lại
-              </button>
+                )}
+              </div>
             </div>
-          </aside>
+          )}
 
-          <main className="min-h-0 overflow-y-auto bg-[#FBF9F5]">
-            <div className="mx-auto max-w-2xl p-4 sm:p-7">
-              {isComplete ? (
-                <div className="flex min-h-[420px] flex-col items-center justify-center text-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full border border-[#D8C28D] bg-[#F7EBC8] text-[#9A3412] shadow-inner">
-                    <Trophy className="h-9 w-9" />
-                  </div>
-                  <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.24em] text-[#8B5E34]">
-                    Huy hiệu đã mở khóa
-                  </p>
-                  <h3 className="mt-2 font-editorial text-3xl font-bold">Người kể chuyện Việt Phục</h3>
-                  <p className="mt-3 max-w-md text-sm leading-relaxed text-[#655B4D]">
-                    Bạn đã mở đủ năm dấu ấn. Xem nguồn của từng câu chuyện, rồi mang bộ yêu thích sang studio 3D.
-                  </p>
-                  <div className="mt-5 max-w-xl border border-[#D7C9AA] bg-[#FBF9F5] p-4 text-left">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#806542]">Dấu ấn vừa mở · {activeStage.chapter}</p>
-                    <p className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#58705E]">
-                      {activeStage.knowledgeType === 'documented' ? <BadgeCheck className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
-                      {activeStage.knowledgeType === 'documented' ? 'Thông tin có căn cứ tư liệu' : 'Cách diễn giải văn hóa'}
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-[#4F473C]">{activeStage.learningNote}</p>
-                    <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-[#E4DAC8] pt-2">
-                      <span className="text-[9px] text-[#58705E]">{activeStage.sourceLabel}</span>
-                    </div>
-                    {activeStage.sourceUrl && <a href={activeStage.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[10px] font-semibold text-[#8D3E22] underline underline-offset-2">Mở bài nghiên cứu / tư liệu ↗</a>}
-                  </div>
-                  <div className="mt-6 flex flex-wrap justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onApplyCostume(activeStage.costumeId)}
-                      className="inline-flex items-center gap-2 bg-[#9A3412] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#7C2D12]"
-                    >
-                      <Shirt className="h-4 w-4" /> Thử phối {costume?.name || 'cổ phục'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={shareProgress}
-                      className="inline-flex items-center gap-2 border border-[#D8CDB8] px-4 py-2.5 text-xs font-semibold hover:border-[#9A3412]"
-                    >
-                      <Share2 className="h-4 w-4" /> {copied ? 'Đã chép thẻ' : 'Chia sẻ thành tích'}
-                    </button>
-                  </div>
-                </div>
+          {/* Hint Trigger */}
+          {!isAnswered && (
+            <div className="pt-1">
+              {!showHint ? (
+                <button
+                  type="button"
+                  onClick={() => setShowHint(true)}
+                  className="text-[11px] text-[#786044] hover:text-[#9A3412] flex items-center gap-1 transition-colors cursor-pointer font-medium"
+                >
+                  <Lightbulb className="w-3.5 h-3.5 text-[#B45309]" />
+                  <span>Cần manh mối gợi ý?</span>
+                </button>
               ) : (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1.5 border border-[#E0D2B8] bg-[#F6EFDF] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-[#81582F]">
-                      <Sparkles className="h-3.5 w-3.5" /> Chặng {VIET_PHUC_QUEST_STAGES.findIndex((stage) => stage.id === activeStage.id) + 1}
-                    </span>
-                    {isCurrentComplete && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#2E7D5B]">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Đã mở dấu ấn
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="mt-5 grid overflow-hidden border border-[#D8CDB8] bg-[#F1EADF] sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                    {stageGarment?.image ? (
-                      <div className="relative min-h-44 bg-[#E3D8C6] sm:min-h-56">
-                        <img
-                          src={stageGarment.image}
-                          alt={`Hình tham khảo ${stageGarment.baseName}`}
-                          className="absolute inset-0 h-full w-full object-cover"
-                          loading="lazy"
-                        />
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#1C1917]/80 to-transparent px-3 pb-3 pt-8 text-white">
-                          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/75">Quan sát phom áo</p>
-                          <p className="mt-0.5 font-editorial text-lg font-semibold">{stageGarment.baseName}</p>
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="flex flex-col justify-center p-4 sm:p-5">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8B5E34]">{activeStage.chapter}</p>
-                      <h3 className="mt-1 font-editorial text-2xl font-bold leading-tight sm:text-3xl">{activeStage.title}</h3>
-                      <p className="mt-3 text-sm leading-relaxed text-[#655B4D]">
-                        Quan sát hình, lần theo manh mối rồi mở thẻ tư liệu để khám phá câu chuyện phía sau bộ áo.
-                      </p>
-                    </div>
-                  </div>
-
-                  <section className="mt-6 border border-[#E1D7C5] bg-[#F5F0E7] p-4 sm:p-5">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E7D9BE] text-[#8B4A28]">
-                        <BookOpen className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#806542]">Mật thư</p>
-                        <p className="mt-1 text-sm font-semibold leading-relaxed">{activeStage.question}</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 space-y-2">
-                      {activeStage.choices.map((choice, index) => {
-                        const selected = selectedChoiceId === choice.id;
-                        const correct = choice.id === activeStage.correctChoiceId;
-                        const reveal = isCurrentComplete && correct;
-                        return (
-                          <button
-                            key={choice.id}
-                            type="button"
-                            disabled={isCurrentComplete}
-                            onClick={() => handleAnswer(choice.id)}
-                            className={`flex w-full items-start gap-3 border px-3 py-3 text-left text-xs leading-relaxed transition ${
-                              reveal
-                                ? 'border-[#4B8B69] bg-[#EAF3EA] text-[#214C37]'
-                                : selected
-                                  ? 'border-[#B2462B] bg-[#F8E6DC] text-[#7C2D12]'
-                                  : 'border-[#DED3C0] bg-[#FBF9F5] hover:border-[#A33B1E] hover:bg-white'
-                            } ${isCurrentComplete ? 'cursor-default' : 'cursor-pointer'}`}
-                          >
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-current/30 text-[10px] font-bold">{String.fromCharCode(65 + index)}</span>
-                            <span className="flex-1">{choice.label}</span>
-                            {reveal && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-                            {selected && !correct && <span className="shrink-0 text-[10px] font-bold">Thử lại</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {selectedChoiceId && !isAnswerCorrect && !isCurrentComplete && (
-                      <p role="status" className="mt-3 text-xs font-semibold text-[#9A3412]">
-                        Chưa trúng manh mối này. Thử một đáp án khác nhé.
-                      </p>
-                    )}
-                  </section>
-
-                  {!isCurrentComplete ? (
-                    <div className="mt-4">
-                      <button
-                        type="button"
-                        onClick={requestHint}
-                        disabled={isLoadingHint}
-                        className="inline-flex items-center gap-2 border border-[#D6C7AB] bg-[#FBF9F5] px-3 py-2 text-xs font-semibold text-[#674624] transition hover:border-[#A33B1E] disabled:opacity-60"
-                      >
-                        {isLoadingHint ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5" />}
-                        {isLoadingHint ? 'Gemini đang gợi ý…' : 'Xin gợi ý từ Gemini'}
-                      </button>
-                      {hintText && (
-                        <div className="mt-3 border-l-2 border-[#B88745] bg-[#F8F1E3] px-3 py-2.5 text-xs leading-relaxed text-[#5E4B35]">
-                          <p>{hintText}</p>
-                          {guideEngine && <p className="mt-1 text-[9px] uppercase tracking-wider text-[#927C5F]">{guideEngine}</p>}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <section className="mt-4 border border-[#BFD5C5] bg-[#EDF4EE] p-4">
-                      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#2E6A47]">
-                        <CheckCircle2 className="h-4 w-4" /> Dấu ấn đã mở
-                      </div>
-                      <p className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#2E6A47]">
-                        {activeStage.knowledgeType === 'documented' ? <BadgeCheck className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
-                        {activeStage.knowledgeType === 'documented' ? 'Thông tin có căn cứ tư liệu' : 'Cách diễn giải văn hóa'}
-                      </p>
-                      <p className="mt-2 text-xs leading-relaxed text-[#304C39]">{activeStage.learningNote}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#CFE0D2] pt-2">
-                        <span className="text-[9px] text-[#58705E]">{activeStage.sourceLabel}</span>
-                      </div>
-                      {activeStage.sourceUrl && <a href={activeStage.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[10px] font-semibold text-[#2E6A47] underline underline-offset-2">Mở bài nghiên cứu / tư liệu ↗</a>}
-                      <p className="mt-2 text-[10px] text-[#58705E]">
-                        {correctChoice?.label ? `Manh mối: ${correctChoice.label}` : ''}
-                      </p>
-                    </section>
-                  )}
-
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#E4DAC8] pt-4">
-                    <button
-                      type="button"
-                      onClick={() => onApplyCostume(activeStage.costumeId)}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8D3E22] hover:text-[#672D19]"
-                    >
-                      <Shirt className="h-3.5 w-3.5" /> Thử phối {costume?.name || 'bộ áo này'}
-                    </button>
-                    {isCurrentComplete && (
-                      <button
-                        type="button"
-                        onClick={advanceStage}
-                        className="inline-flex items-center gap-2 bg-[#1C1917] px-4 py-2.5 text-xs font-bold text-[#FBF9F5] transition hover:bg-[#3B3029]"
-                      >
-                        Chặng tiếp theo <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </>
+                <div className="p-2.5 bg-[#FFFBEB] border border-[#FDE68A] text-[#78350F] text-xs leading-relaxed flex items-start gap-2">
+                  <Lightbulb className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+                  <p>
+                    <strong>Manh mối:</strong> {activeStage.hint}
+                  </p>
+                </div>
               )}
             </div>
-          </main>
+          )}
+        </div>
+
+        {/* Footer Controls: Prev / Next */}
+        <div className="flex shrink-0 items-center justify-between border-t border-[#DFD8C8] bg-[#F4EFE5] px-4 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={handlePrev}
+            disabled={currentIndex === 0}
+            className={`px-3 py-1.5 text-xs font-medium border flex items-center gap-1.5 transition-colors ${
+              currentIndex === 0
+                ? 'opacity-40 cursor-not-allowed border-[#DFD8C8] bg-transparent text-[#A8A29E]'
+                : 'border-[#DFD8C8] bg-[#FBF9F5] text-[#1C1917] hover:border-[#1C1917] cursor-pointer'
+            }`}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Câu trước</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            {stageGarment && (
+              <button
+                type="button"
+                onClick={() => onApplyCostume(activeStage.costumeId)}
+                className="hidden sm:flex px-3 py-1.5 text-xs font-semibold border border-[#9A3412] bg-[#FBF9F5] text-[#9A3412] hover:bg-[#9A3412] hover:text-white transition-colors items-center gap-1.5 cursor-pointer"
+              >
+                <Shirt className="w-3.5 h-3.5" />
+                <span>Xem 3D</span>
+              </button>
+            )}
+
+            {currentIndex < VIET_PHUC_QUEST_STAGES.length - 1 ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="px-4 py-1.5 text-xs font-bold bg-[#9A3412] hover:bg-[#7C2D12] text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+              >
+                <span>Câu tiếp theo</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-1.5 text-xs font-bold bg-[#1C1917] hover:bg-[#2E7D5B] text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+              >
+                <span>Hoàn tất & Về Studio</span>
+              </button>
+            )}
+          </div>
         </div>
       </section>
     </div>

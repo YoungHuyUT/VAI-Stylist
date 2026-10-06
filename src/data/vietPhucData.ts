@@ -275,6 +275,7 @@ export interface OutfitEvaluationOutput {
   recommended_color_hex: string | null;
   recommended_pattern_id: PatternId | null;
   heritage_guard_audit?: VPhucPrecisionAuditOutput;
+  genz_ai_comment?: string | null;
 }
 
 export interface OutfitInputPayload {
@@ -1412,6 +1413,8 @@ export const CURATED_PRESETS: CuratedPreset[] = [
         "Để nổi bật hơn mà vẫn tinh tế, AI gợi ý bạn phủ thêm họa tiết 'Chim Lạc' ánh kim ở viền tay áo và giữ tông màu Đỏ Son chủ đạo.",
       recommended_color_hex: '#9A2B1D',
       recommended_pattern_id: 'pattern_chim_lac',
+      genz_ai_comment:
+        'Bản phối Gen Z cháy phố dữ dằn nha ní! Chụp ảnh kỷ yếu thì bao chất, nhưng nếu ghé di tích lịch sử thì tháo kính râm xíu nhen homie! 😎',
     },
   },
   {
@@ -1441,6 +1444,8 @@ export const CURATED_PRESETS: CuratedPreset[] = [
       custom_request_feedback: null,
       recommended_color_hex: '#1C1917',
       recommended_pattern_id: 'none',
+      genz_ai_comment:
+        'Gì dợ má? Áo Nhật Bình triều đình tôn nghiêm mà mix với quần short jeans đi lễ đền là kiếp nạn thứ 82 của cụ cố tổ gòi á! Đổi qua quần lụa ống rộng dài chấm gót liền kẻo bị các cụ gõ đầu nè! 👑',
     },
   },
 ];

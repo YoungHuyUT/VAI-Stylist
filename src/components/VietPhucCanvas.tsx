@@ -92,6 +92,19 @@ const ANGLE_NAMES_VI = [
   'Nghiêng phải (270°)',
 ];
 
+function scheduleIdleTask(task: () => void): () => void {
+  const browserWindow = window as unknown as {
+    requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  if (browserWindow.requestIdleCallback) {
+    const handle = browserWindow.requestIdleCallback(task, { timeout: 900 });
+    return () => browserWindow.cancelIdleCallback?.(handle);
+  }
+  const handle = window.setTimeout(task, 100);
+  return () => window.clearTimeout(handle);
+}
+
 const CLOTH_NODE_COUNT = 8;
 
 interface ClothPhysicsChainState {
@@ -1183,6 +1196,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     if (!turntableData || viewerMode !== 'turntable') return;
     let cancelled = false;
     let bgTimer = 0;
+    let cancelIdleRender: (() => void) | null = null;
     const jobId = ++renderJobIdRef.current;
     const curCharAcc = latestCharAndAccRef.current;
 
@@ -1241,12 +1255,15 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
           return base;
         });
 
-        // 2. Render remaining 3 off-angle frames lazily in idle background
-        bgTimer = window.setTimeout(async () => {
+        // Render one off-angle at a time so their pixel work does not arrive as one long UI stall.
+        const otherIndices = [0, 1, 2, 3].filter((i) => i !== visIdx);
+        let nextBackgroundIndex = 0;
+        const renderNextBackgroundFrame = async () => {
+          if (cancelled || jobId !== renderJobIdRef.current) return;
+          const idx = otherIndices[nextBackgroundIndex];
+          if (idx === undefined) return;
           const latest = latestCharAndAccRef.current;
-          const otherIndices = [0, 1, 2, 3].filter((i) => i !== visIdx);
-          for (const idx of otherIndices) {
-            if (cancelled || jobId !== renderJobIdRef.current) return;
+          try {
             const url = await renderRecoloredTurntableFrame({
               modelId: targetModelId,
               frameIndex: idx,
@@ -1277,8 +1294,17 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
               base[idx] = url;
               return base;
             });
+            nextBackgroundIndex += 1;
+            if (nextBackgroundIndex < otherIndices.length) {
+              cancelIdleRender = scheduleIdleTask(() => void renderNextBackgroundFrame());
+            }
+          } catch {
+            // Keep the visible angle responsive if an idle frame cannot be recolored.
           }
-        }, 24);
+        };
+        bgTimer = window.setTimeout(() => {
+          cancelIdleRender = scheduleIdleTask(() => void renderNextBackgroundFrame());
+        }, 120);
       } catch {
         // Fallback to raw frames
         if (!cancelled && jobId === renderJobIdRef.current) {
@@ -1290,6 +1316,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     return () => {
       cancelled = true;
       if (bgTimer) window.clearTimeout(bgTimer);
+      cancelIdleRender?.();
     };
   }, [
     turntableData,

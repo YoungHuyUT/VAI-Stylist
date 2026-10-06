@@ -15,7 +15,7 @@ import {
   StylePreferenceVote,
 } from '../types/remix';
 import { culturalData } from '../data/culturalDataLoader';
-import { TOP_GARMENTS } from '../data/vietPhucData';
+import { TOP_GARMENTS, TRADITIONAL_COLORS } from '../data/vietPhucData';
 
 const THEMES: Array<{ id: RemixThemeId; label: string; hint: string }> = [
   { id: 'everyday', label: 'Phố cổ cuối tuần', hint: 'Thoải mái, dễ mặc' },
@@ -49,6 +49,43 @@ function readStyleProfile(): StylePreferenceVote[] {
   }
 }
 
+function summarizeStyleProfile(votes: StylePreferenceVote[]): string {
+  if (votes.length < 3) {
+    return `Đánh giá thêm ${3 - votes.length} bản phối để có nhận xét đáng tin hơn.`;
+  }
+  const liked = votes.filter((vote) => vote.liked);
+  const skipped = votes.filter((vote) => !vote.liked);
+  const mostCommon = <T,>(items: T[]): T | undefined =>
+    items.reduce<{ value: T; count: number } | null>((best, value) => {
+      const count = items.filter((item) => item === value).length;
+      return !best || count > best.count ? { value, count } : best;
+    }, null)?.value;
+
+  if (liked.length < 2) {
+    const oftenSkipped = mostCommon(skipped.map((vote) => vote.costumeId));
+    const name = TOP_GARMENTS.find((item) => item.id === oftenSkipped)?.baseName;
+    return name
+      ? `Bạn đã bỏ qua ${name} nhiều nhất; hãy thích thêm vài bộ để xác định rõ kiểu dáng mình muốn.`
+      : 'Bạn đang thử nhiều phong cách khác nhau; hãy thích thêm vài bộ để thấy xu hướng rõ hơn.';
+  }
+
+  const favoredCostume = mostCommon(liked.map((vote) => vote.costumeId));
+  const favoredColor = mostCommon(liked.map((vote) => vote.mainColor));
+  const favoredBottom = mostCommon(liked.map((vote) => vote.bottomName));
+  const skippedBottom = mostCommon(skipped.map((vote) => vote.bottomName));
+  const costumeName = TOP_GARMENTS.find((item) => item.id === favoredCostume)?.baseName;
+  const colorName = TRADITIONAL_COLORS.find(
+    (item) => item.hex.toLowerCase() === favoredColor?.toLowerCase()
+  )?.name;
+  const preferredParts = [colorName, costumeName, favoredBottom]
+    .filter(Boolean)
+    .join(' · ');
+  const skippedPart = skipped.length >= 2 && skippedBottom !== favoredBottom
+    ? ` Bạn thường bỏ qua cách phối với ${skippedBottom}.`
+    : '';
+  return `Trong ${votes.length} lượt đánh giá, các bộ bạn thích thường có ${preferredParts || 'phom và màu gần nhau'}.${skippedPart}`;
+}
+
 interface RemixStudioModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -67,13 +104,30 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
   const [engine, setEngine] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPrefetching, setIsPrefetching] = useState(false);
   const [styleProfile, setStyleProfile] = useState<StylePreferenceVote[]>(readStyleProfile);
   const [lookIndex, setLookIndex] = useState(0);
   const [sessionLikes, setSessionLikes] = useState(0);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const styleInsight = summarizeStyleProfile(styleProfile);
   const generationId = useRef(0);
   const swipeStartX = useRef<number | null>(null);
+  const prefetchInFlight = useRef(false);
+  const prefetchRunId = useRef(0);
+
+  useEffect(() => {
+    if (!isOpen || looks.length === 0) return;
+    for (const look of looks.slice(lookIndex, lookIndex + 3)) {
+      const garment = TOP_GARMENTS.find((item) => item.id === look.costumeId);
+      if (!garment) continue;
+      for (const src of [garment.stylized3dImage || garment.image, garment.image]) {
+        const image = new Image();
+        image.decoding = 'async';
+        image.src = src;
+      }
+    }
+  }, [isOpen, lookIndex, looks]);
 
   useEffect(() => {
     generationId.current += 1;
@@ -92,6 +146,9 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
 
   const closeStudio = () => {
     generationId.current += 1;
+    prefetchRunId.current += 1;
+    prefetchInFlight.current = false;
+    setIsPrefetching(false);
     setIsLoading(false);
     onClose();
   };
@@ -104,6 +161,43 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
     setEngine('');
     setError('');
     setIsLoading(false);
+    prefetchRunId.current += 1;
+    prefetchInFlight.current = false;
+    setIsPrefetching(false);
+  };
+
+  const requestLooks = async (votes: StylePreferenceVote[]) => {
+    const response = await fetch('/api/remix-studio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...request, theme, styleVotes: votes }),
+    });
+    const data = (await response.json()) as RemixStudioResponse & { error?: string };
+    if (!response.ok || !Array.isArray(data.looks) || data.looks.length !== 3) {
+      throw new Error(data.error || 'Chưa tạo được 3 gợi ý phối đồ.');
+    }
+    return data;
+  };
+
+  const prefetchLooks = async (votes: StylePreferenceVote[]) => {
+    if (prefetchInFlight.current) return;
+    prefetchInFlight.current = true;
+    setIsPrefetching(true);
+    const requestId = generationId.current;
+    const prefetchId = ++prefetchRunId.current;
+    try {
+      const data = await requestLooks(votes);
+      if (requestId !== generationId.current) return;
+      setLooks((current) => [...current, ...data.looks]);
+      setEngine(data.engine || 'V-Stylist');
+    } catch {
+      // Keep the current deck usable if background recommendations are unavailable.
+    } finally {
+      if (prefetchId === prefetchRunId.current) {
+        if (requestId === generationId.current) setIsPrefetching(false);
+        prefetchInFlight.current = false;
+      }
+    }
   };
 
   const rateLook = (look: RemixLook, liked: boolean) => {
@@ -115,12 +209,14 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
       patternId: look.patternId,
       liked,
     };
-    setStyleProfile((current) => [...current, vote].slice(-24));
+    const nextProfile = [...styleProfile, vote].slice(-24);
+    setStyleProfile(nextProfile);
     if (liked) setSessionLikes((current) => current + 1);
+    if (lookIndex % 3 === 1) void prefetchLooks(nextProfile);
     setLookIndex((current) => current + 1);
   };
 
-  const handleSwipeEnd = (event: React.PointerEvent<HTMLDivElement>, look: RemixLook) => {
+  const handleSwipeEnd = (event: React.PointerEvent<HTMLElement>, look: RemixLook) => {
     if (swipeStartX.current === null) return;
     const distance = event.clientX - swipeStartX.current;
     swipeStartX.current = null;
@@ -135,20 +231,17 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
 
   const generateLooks = async () => {
     const requestId = ++generationId.current;
+    prefetchRunId.current += 1;
+    prefetchInFlight.current = false;
+    setIsPrefetching(false);
     setError('');
     setIsLoading(true);
     try {
-      const response = await fetch('/api/remix-studio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...request, theme, styleVotes: styleProfile }),
-      });
-      const data = (await response.json()) as RemixStudioResponse & { error?: string };
-      if (!response.ok || !Array.isArray(data.looks) || data.looks.length !== 3) {
-        throw new Error(data.error || 'Chưa tạo được 3 gợi ý phối đồ.');
-      }
+      const data = await requestLooks(styleProfile);
       if (requestId !== generationId.current) return;
       setLooks(data.looks);
+      prefetchInFlight.current = false;
+      setIsPrefetching(false);
       setLookIndex(0);
       setSessionLikes(0);
       setEngine(data.engine || 'V-Stylist');
@@ -178,7 +271,7 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
               Lướt gu Việt, thử ngay 3D
             </h2>
             <p className="mt-1 text-xs sm:text-sm text-[#685F54] max-w-2xl">
-              Chọn vibe, lướt thích hoặc bỏ qua. Gemini dùng lựa chọn của bạn để cá nhân hóa vòng phối tiếp theo.
+              Lướt để xem nhiều bản phối liên tục. Gemini chuẩn bị lượt tiếp theo trong lúc bạn xem.
             </p>
           </div>
           <button type="button" onClick={closeStudio} aria-label="Đóng Studio" className="p-2 text-[#554D44] hover:bg-black/5">
@@ -213,6 +306,13 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
                   </button>
                 ))}
               </div>
+              {styleProfile.length > 0 && (
+                <aside className="mt-3 border-l-2 border-[#9A3412] bg-[#F2EBDD] px-3 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8C4B25]">Nhận xét gu từ lượt chọn</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#4C443B]">{styleInsight}</p>
+                  <p className="mt-1 text-[9px] text-[#766D62]">Nhận xét dựa trên các bộ bạn thích/bỏ qua, không phải đánh giá tính cách.</p>
+                </aside>
+              )}
             </div>
             <button
               type="button"
@@ -221,7 +321,7 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
               className="min-h-11 px-5 bg-[#9A3412] hover:bg-[#7C2D12] text-white text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {isLoading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {isLoading ? 'Đang phối ba hướng…' : looks.length ? 'Tạo 3 bản phối' : 'Bắt đầu lướt gu'}
+              {isLoading ? 'Đang phối ba hướng…' : looks.length ? 'Làm mới bộ phối' : 'Bắt đầu lướt gu'}
             </button>
           </div>
 
@@ -239,9 +339,9 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
               return (
                 <div className="mx-auto max-w-4xl">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-xs font-semibold text-[#3D362F]">Bản phối {lookIndex + 1} / {looks.length}</p>
+                    <p className="text-xs font-semibold text-[#3D362F]">Lượt {Math.floor(lookIndex / 3) + 1} · bản phối {lookIndex % 3 + 1} / 3</p>
                     <div className="flex gap-1.5" aria-label={`Đã xem ${lookIndex} trên ${looks.length} bản phối`}>
-                      {looks.map((item, index) => <span key={item.id} className={`h-1.5 w-8 ${index < lookIndex ? 'bg-[#2E7D5B]' : index === lookIndex ? 'bg-[#9A3412]' : 'bg-[#D9CEBC]'}`} />)}
+                      {[0, 1, 2].map((step) => <span key={step} className={`h-1.5 w-8 ${step < lookIndex % 3 ? 'bg-[#2E7D5B]' : step === lookIndex % 3 ? 'bg-[#9A3412]' : 'bg-[#D9CEBC]'}`} />)}
                     </div>
                   </div>
                   <article
@@ -250,32 +350,34 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
                       transform: `translateX(${swipeOffset}px) rotate(${swipeOffset / 32}deg)`,
                       opacity: Math.max(0.72, 1 - Math.abs(swipeOffset) / 520),
                       transition: isDragging ? 'none' : 'transform 180ms ease, opacity 180ms ease',
+                      touchAction: 'pan-y',
+                    }}
+                    onPointerDown={(event) => {
+                      if ((event.target as HTMLElement).closest('button')) return;
+                      swipeStartX.current = event.clientX;
+                      setIsDragging(true);
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    }}
+                    onPointerMove={(event) => {
+                      if (swipeStartX.current !== null) {
+                        setSwipeOffset(event.clientX - swipeStartX.current);
+                      }
+                    }}
+                    onPointerUp={(event) => handleSwipeEnd(event, look)}
+                    onPointerCancel={() => {
+                      swipeStartX.current = null;
+                      setIsDragging(false);
+                      setSwipeOffset(0);
                     }}
                   >
                     <div
-                      className="relative min-h-64 select-none overflow-hidden bg-[#E8E0D3] sm:min-h-[420px]"
-                      style={{ touchAction: 'pan-y' }}
-                      onPointerDown={(event) => {
-                        swipeStartX.current = event.clientX;
-                        setIsDragging(true);
-                        event.currentTarget.setPointerCapture(event.pointerId);
-                      }}
-                      onPointerMove={(event) => {
-                        if (swipeStartX.current !== null) {
-                          setSwipeOffset(event.clientX - swipeStartX.current);
-                        }
-                      }}
-                      onPointerUp={(event) => handleSwipeEnd(event, look)}
-                      onPointerCancel={() => {
-                        swipeStartX.current = null;
-                        setIsDragging(false);
-                        setSwipeOffset(0);
-                      }}
+                      className="relative min-h-64 select-none overflow-hidden bg-[#E8E0D3] sm:min-h-[510px]"
                       role="group"
                       aria-label="Vuốt phải để thích, vuốt trái để bỏ qua"
                     >
-                      {garment && <img src={garment.image} alt={garment.baseName} className="absolute inset-0 h-full w-full object-cover object-center" draggable={false} />}
+                      {garment && <img src={garment.stylized3dImage || garment.image} alt={`${garment.baseName}, ảnh toàn thân`} className="absolute inset-0 h-full w-full object-cover object-top" draggable={false} fetchPriority="high" decoding="async" />}
                       <div className="absolute inset-0 bg-gradient-to-t from-[#171512]/80 via-transparent to-[#171512]/5" />
+                      {garment && <div className="absolute right-3 top-12 h-24 w-20 overflow-hidden border-2 border-white/80 shadow-lg sm:h-32 sm:w-24"><img src={garment.image} alt={`Ảnh phong cách ${garment.baseName}`} className="h-full w-full object-cover" draggable={false} loading="eager" decoding="async" /></div>}
                       <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3 text-white">
                         <div><p className="text-[9px] uppercase tracking-[0.16em] text-white/75">{garment?.dynasty || 'Việt phục'}</p><p className="mt-0.5 font-editorial text-2xl font-semibold">{garment?.baseName || look.title}</p></div>
                         <span className="mb-1 h-8 w-8 rounded-full border-2 border-white/80 shadow" style={{ backgroundColor: look.mainColor }} title="Màu áo" />
@@ -314,11 +416,17 @@ export const RemixStudioModal: React.FC<RemixStudioModalProps> = ({
                 </div>
               );
             })()
+          ) : looks.length > 0 && isPrefetching ? (
+            <div className="mx-auto flex min-h-64 max-w-2xl flex-col items-center justify-center border border-[#D9CEBC] bg-[#FBF8F1] px-6 py-8 text-center">
+              <LoaderCircle className="h-8 w-8 animate-spin text-[#9A3412]" />
+              <h3 className="mt-4 font-editorial text-2xl font-semibold text-[#233D39]">Đang xếp lượt phối tiếp theo</h3>
+              <p className="mt-2 max-w-md text-xs leading-relaxed text-[#685F54]">Các lượt thích và bỏ qua vừa rồi đang được dùng để chọn thêm bản phối. Bộ ảnh kế tiếp sẽ hiện ngay khi sẵn sàng.</p>
+            </div>
           ) : looks.length > 0 ? (
             <div className="mx-auto flex min-h-64 max-w-2xl flex-col items-center justify-center border border-[#D9CEBC] bg-[#FBF8F1] px-6 py-8 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#EAE3D7] text-[#2E7D5B]"><ThumbsUp className="h-6 w-6" /></div>
               <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.18em] text-[#8C7964]">Vòng phối đã xong</p>
-              <h3 className="mt-1 font-editorial text-2xl font-semibold text-[#233D39]">Bạn thích {sessionLikes} / {looks.length} bản phối</h3>
+              <h3 className="mt-1 font-editorial text-2xl font-semibold text-[#233D39]">Đã xem {lookIndex} bản phối · thích {sessionLikes}</h3>
               <p className="mt-2 max-w-md text-xs leading-relaxed text-[#685F54]">
                 Đã ghi nhận {styleProfile.length} lượt chọn trên thiết bị này.{' '}
                 {engine.toLowerCase().includes('ngoại tuyến')

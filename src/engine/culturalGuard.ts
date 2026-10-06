@@ -109,25 +109,40 @@ export function harmonyScore(colors: {
     relationLabel = 'Tương phản bổ túc (Complementary) rực rỡ';
     score += 1;
   } else {
-    relationLabel = 'Phối màu tam giác hoặc tương phản tự do';
+    relationLabel = 'Phối màu tự do';
   }
 
-  // 2. Luminance contrast check (below 1.3 ratio between ao and quan)
+  // 2. Luminance contrast check (below 1.35 ratio between ao and quan)
   const cr = contrastRatio(colors.ao, colors.quan);
-  if (cr < 1.3) {
-    score -= 14;
+  if (cr < 1.35) {
+    score -= 16;
     notes.push(
       `Độ tương phản sáng - tối giữa áo và hạ y còn thấp (${cr.toFixed(
         2
-      )} < 1.3), nên tăng độ chênh lệch để làm nổi bật phom tà áo.`
+      )} < 1.35), nên tăng độ chênh lệch để làm nổi bật phom tà áo và ranh giới trang phục.`
     );
   }
 
-  // 3. High chroma check (C > 0.22 on large fabric areas)
+  // 3. High chroma and saturation clash check
   if (oklchAo.C > 0.22) {
     score -= 10;
     notes.push(
       'Màu áo có độ no màu (Chroma) rất cao, hãy cân nhắc lụa tơ tằm dệt chìm để giảm cảm giác chói gắt.'
+    );
+  }
+
+  // Check competing saturated colors (both non-neutral with high chroma)
+  if (!isNeutralAo && !isNeutralQuan && oklchAo.C > 0.14 && oklchQuan.C > 0.14) {
+    if (hueDiff > 35 && (hueDiff < 150 || hueDiff > 210)) {
+      score -= 20;
+      notes.push(
+        'Cả áo và hạ y đều mang sắc độ rực (Chroma cao) và lệch pha thị giác. Cổ phục Việt tôn vinh sự nền nã: nên ưu tiên quần lụa trắng ngà (#F5F1E8) hoặc quần lĩnh đen (#18181B) để tạo khoảng nghỉ thanh thoát.'
+      );
+    }
+  } else if (!isNeutralAo && !isNeutralQuan && hueDiff >= 65 && hueDiff <= 135) {
+    score -= 14;
+    notes.push(
+      'Hệ màu giữa thân áo và hạ y có góc lệch sắc độ gắt, thiếu điểm tựa trung hòa. Hãy cân nhắc phối cùng Quần Lụa Trắng hoặc Quần Lĩnh Đen truyền thống.'
     );
   }
 
@@ -139,7 +154,7 @@ export function harmonyScore(colors: {
       const d2 = calculateHueDistance(oklchAo.H, oklchHoaTiet.H);
       const d3 = calculateHueDistance(oklchQuan.H, oklchHoaTiet.H);
       if (d1 > 45 && d2 > 45 && d3 > 45 && !isNeutralAo && !isNeutralQuan) {
-        score -= 12;
+        score -= 14;
         notes.push(
           'Bản phối xuất hiện hơn 3 hệ màu khác biệt cùng lúc, nên tối giản họa tiết để giữ nét nền nã cổ điển.'
         );
@@ -147,7 +162,7 @@ export function harmonyScore(colors: {
     }
   }
 
-  score = Math.max(35, Math.min(100, score));
+  score = Math.max(30, Math.min(100, score));
 
   return {
     score,
@@ -227,19 +242,17 @@ export function evaluate(
   data: CulturalDataSet
 ): CulturalEvaluationResult {
   const firedRules = data.rules.filter((rule) => doesRuleFire(rule, outfit));
+  const harmony = harmonyScore(outfit.colors);
 
-  // Determine overall status based on highest level
+  // Determine overall status based on highest level, including color harmony
   let status: 'SAFE' | 'WARNING' | 'CRITICAL' = 'SAFE';
-  if (firedRules.some((r) => r.level === 'critical')) {
+  if (firedRules.some((r) => r.level === 'critical') || harmony.score < 50) {
     status = 'CRITICAL';
-  } else if (firedRules.some((r) => r.level === 'warning')) {
+  } else if (firedRules.some((r) => r.level === 'warning') || harmony.score < 75) {
     status = 'WARNING';
   }
 
-  // Calculate OKLCH harmony
-  const harmony = harmonyScore(outfit.colors);
-
-  // Expose suggestions only for fired warning or critical rules with a fix
+  // Expose suggestions for fired warning or critical rules with a fix
   const suggestions: Array<{
     ruleId: string;
     message: string;
@@ -256,10 +269,116 @@ export function evaluate(
     }
   }
 
+  if (harmony.score < 75 && harmony.notes.length > 0) {
+    suggestions.push({
+      ruleId: 'rule-color-harmony-adjustment',
+      message: harmony.notes[0],
+      fix: {
+        colors: {
+          ...outfit.colors,
+          quan: '#F5F1E8',
+        },
+      },
+    });
+  }
+
   return {
     status,
     fired: firedRules,
     harmony,
     suggestions,
   };
+}
+
+/**
+ * Lời bình AI Stylist dí dỏm, vui vẻ, đậm chất GenZ Việt Nam khi phát hiện trang phục "lạc quẻ" hoặc "cấn".
+ */
+export function buildGenZStylistComment(params: {
+  culturalStatus: 'SAFE' | 'WARNING' | 'CRITICAL';
+  topName: string;
+  bottomName: string;
+  eventName: string;
+  harmonyScore: number;
+  harmonyNotes: string[];
+  isSacredPlace?: boolean;
+  isCeremonialGarment?: boolean;
+  isVeryShortBottom?: boolean;
+  hasStreetwearAccessory?: boolean;
+}): string | null {
+  const {
+    culturalStatus,
+    topName,
+    bottomName,
+    eventName,
+    harmonyScore: score,
+    harmonyNotes,
+    isSacredPlace,
+    isCeremonialGarment,
+    isVeryShortBottom,
+    hasStreetwearAccessory,
+  } = params;
+
+  if (culturalStatus === 'SAFE' && score >= 78) {
+    return null;
+  }
+
+  // 1. Lễ phục trang nghiêm / Cung đình kết hợp quần short / váy ngắn (CRITICAL đại kỵ)
+  if (isCeremonialGarment && isVeryShortBottom) {
+    const roasts = [
+      `Gì dợ má? ${topName.split('(')[0].trim()} hoàng tộc uy nghi ngút ngàn mà mix với ${bottomName} là kiếp nạn thứ 82 của cụ cố tổ gòi á! Phá cách này hơi bị "flex" quá đà, đổi qua quần lụa ống rộng dài chấm gót cho đúng chuẩn "con nhà gia giáo" liền nè ní ơi! 👑`,
+      `Ét o ét! Phối đồ kiểu này là các cụ gõ đầu liền á! Tà áo cung đình trang trọng mà lấp ló ${bottomName} là "cấn" dữ dội nha ní. Đổi quần lụa dài thướt tha liền cho chuẩn quý tộc nha! 💅`,
+      `Ủa alo? Outfit này nhìn muốn "tiền đình" luôn á ní! Thân trên hoàng gia quyền quý, thân dưới quẩy bar bãi biển. Cứu tui cứu tui, đổi quần lụa trắng gấp đi ní ơi! 😭`,
+    ];
+    return roasts[Math.abs(topName.length + bottomName.length) % roasts.length];
+  }
+
+  // 2. Đi lễ chùa / đền / hôn lễ nhưng đồ ngắn hoặc phụ kiện chọi
+  if (isSacredPlace && (isVeryShortBottom || hasStreetwearAccessory)) {
+    const roasts = [
+      `Ní ơi ní à! Đi ${eventName} cửa Phật mà outfit "cháy phố" quá là duyên trốn luôn á! Tháo kính râm, đổi quần dài kín đáo để các cụ độ cho nè homie ơi! 🙏`,
+      `10 điểm thần thái nhưng vô nơi tôn nghiêm mà chơi combo này là bị các cụ "nhìn bằng nửa con mắt" nha ní! Thay quần lụa trang nghiêm cho tâm tịnh an yên nào! ✨`,
+      `Vô chùa cầu duyên mà lên đồ ngầu như đi concert thế này thì duyên cũng xỉu ngang á! Đổi quần lụa dài truyền thống liền cho chuẩn phong thái trang nghiêm nha ní! 🌸`,
+    ];
+    return roasts[Math.abs(topName.length + eventName.length) % roasts.length];
+  }
+
+  // 3. Xung đột màu sắc nghiêm trọng (Chroma cao combat hoặc điểm hòa hợp cực thấp < 55)
+  if (score < 55) {
+    const roasts = [
+      `Màu sắc chưa hợp bạn uii! Màu áo với màu quần đang combat 1-1 giành spotlight căng đét luôn á. Cứu đôi mắt tui bằng một chiếc Quần Lụa Trắng ngà (#F5F1E8) liền đi ní ơi! 😂`,
+      `Màu sắc chưa hợp bạn uii! Áo một đằng quần một nẻo, nhìn như 2 vũ trụ đa chiều đang va chạm zậy á. Điểm độc lạ 10/10 mà điểm hòa hợp thì xin phép "quay xe" gấp nhen! 💅`,
+      `Màu sắc chưa hợp bạn uii! Hai gam màu này đang giành spotlight như drama showbiz dị á. Đổi Quần Lụa Trắng hoặc Quần Lĩnh Đen cho mắt được thở xíu nè homie! 🔥`,
+    ];
+    return roasts[Math.abs(topName.length + score) % roasts.length];
+  }
+
+  // 4. Lỗi tương phản sáng tối thấp (Tàng hình / Nhập làm một)
+  if (harmonyNotes.some((n) => n.includes('tương phản'))) {
+    const roasts = [
+      `Màu sắc chưa hợp bạn uii! Giao diện này nhìn hơi bị "tàng hình" nha homie! Áo với quần tiệp màu quá làm phom tà áo trôi dạt nơi nao luôn rồi, thêm xíu sáng tối cho nét căng đét coi nè! 👀`,
+      `Màu sắc chưa hợp bạn uii! Áo với quần nhập làm một luôn gòi! Tăng độ chênh lệch sáng tối lên cho thiên hạ còn chiêm ngưỡng tà áo thướt tha chứ ní! ✨`,
+    ];
+    return roasts[Math.abs(bottomName.length) % roasts.length];
+  }
+
+  // 5. Màu sắc lệch pha nhẹ (55 <= score < 76)
+  if (score < 76) {
+    const roasts = [
+      `Màu sắc chưa hợp bạn uii! Set đồ này 10 điểm thần thái nhưng trừ 1 điểm hòa hợp màu nha! Áo với quần hơi bị lệch pha nhẹ, đổi sang Quần Lụa Trắng ngà là lên hình bao bén liền nè! ✨`,
+      `Màu sắc chưa hợp bạn uii! Hai gam màu này đứng cạnh nhau hơi bị "chiến" quá đà nha ní ơi! Giảm sắc độ hoặc chọn màu quần trung tính cho chuẩn vibe quý tộc cổ phong nè! 🍵`,
+      `Màu sắc chưa hợp bạn uii! Phối màu chưa được "keo lỳ" cho lắm, thử đổi màu quần sang trắng ngà hoặc đen tuyền xem sao nha ní ơi! 🎨`,
+    ];
+    return roasts[Math.abs(score) % roasts.length];
+  }
+
+  // 6. Giao thoa hiện đại (Jeans/Kaki mix Cổ phục thường ngày - WARNING)
+  if (culturalStatus === 'WARNING') {
+    const roasts = [
+      `Bản phối Gen Z này "cháy phố" dữ dằn nha ní! Mix đồ kiểu này dạo phố chụp ảnh thì bao chất, nhưng nếu ghé thăm di tích lịch sử thì nhớ tém tém lại xíu nhen! 😎`,
+      `Giao diện giao thoa Đông Tây nhìn cũng "ra gì và này nọ" phết! Cơ mà nếu muốn đúng điệu cổ phục thanh tao thì quần lụa vẫn là chân ái nha ní! 🌿`,
+    ];
+    return roasts[Math.abs(topName.length) % roasts.length];
+  }
+
+  return null;
 }

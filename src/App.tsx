@@ -82,6 +82,7 @@ import {
   exportPatternsZip,
 } from './utils/vstylistStorageAndZip';
 import { invalidatePatternTextureCache } from './components/vietPhucGlbLoader';
+import { harmonyScore, buildGenZStylistComment } from './engine/culturalGuard';
 
 export { getDesignSnapshot, useOutfitState };
 export type { OutfitState };
@@ -99,7 +100,8 @@ function computeInstantPreview(
   condition: string,
   eventType: string,
   userCustomRequest: string,
-  historySnippet: string
+  historySnippet: string,
+  colors?: { ao: string; quan: string; hoaTiet?: string }
 ): OutfitEvaluationOutput {
   const lowerBottom = bottomName.toLowerCase();
   const lowerTop = topFullString.toLowerCase();
@@ -215,33 +217,76 @@ function computeInstantPreview(
     }
   }
 
-  if (isCritical) {
+  const harmony = colors ? harmonyScore(colors) : null;
+  const isColorCritical = Boolean(harmony && harmony.score < 52);
+  const isColorWarning = Boolean(harmony && (harmony.score < 75 || harmony.notes.length > 0));
+
+  const effectiveCritical = isCritical || isColorCritical;
+  const effectiveWarning = !effectiveCritical && (isWarning || isColorWarning);
+  const effectiveStatus = effectiveCritical
+    ? 'CRITICAL'
+    : effectiveWarning
+    ? 'WARNING'
+    : 'SAFE';
+
+  const genzComment = buildGenZStylistComment({
+    culturalStatus: effectiveStatus,
+    topName: topFullString,
+    bottomName,
+    eventName: eventType,
+    harmonyScore: harmony ? harmony.score : 92,
+    harmonyNotes: harmony ? harmony.notes : [],
+    isSacredPlace,
+    isCeremonialGarment,
+    isVeryShortBottom,
+    hasStreetwearAccessory: accessories.some((a) => {
+      const l = a.toLowerCase();
+      return l.includes('sneaker') || l.includes('kính') || l.includes('sunglasses');
+    }),
+  });
+
+  if (effectiveCritical) {
+    const colorReason = isColorCritical && harmony?.notes.length ? ` ${harmony.notes.join(' ')}` : '';
     return {
       lookbook_title: 'Bất Hòa Phong Cách',
-      style_score: 30,
+      style_score: harmony ? Math.min(30, Math.max(15, harmony.score - 20)) : 30,
       weather_advice: weatherAdvice,
       cultural_status: 'CRITICAL',
-      cultural_warning_msg: `${bottomName} tạo điểm nhấn phá cách, nhưng độ dài này có thể chưa hợp với ${eventType} hoặc sắc thái lễ phục của ${topFullString.split('(')[0].trim()}. Nếu muốn giữ không khí trang trọng, bạn có thể thử quần lụa ống rộng.`,
+      cultural_warning_msg: isCritical
+        ? `${bottomName} tạo điểm nhấn phá cách, nhưng độ dài này có thể chưa hợp với ${eventType} hoặc sắc thái lễ phục của ${topFullString.split('(')[0].trim()}. Nếu muốn giữ không khí trang trọng, bạn có thể thử quần lụa ống rộng.${colorReason}`
+        : `Phối màu giữa áo và hạ y xung đột sắc độ nghiêm trọng.${colorReason} Hãy chọn Quần Lụa Trắng hoặc hạ bớt độ no màu để đạt chuẩn mực cổ phong.`,
       cultural_history_fact: historySnippet,
       custom_request_feedback: customFeedback,
       recommended_color_hex: recColorHex || '#2C221E',
       recommended_pattern_id: 'none',
+      genz_ai_comment: genzComment,
     };
   }
 
-  if (isWarning) {
+  if (effectiveWarning) {
+    let warningScore = isSacredPlace ? 68 : 85;
+    if (harmony) {
+      const penalty = Math.max(0, 85 - harmony.score);
+      warningScore = Math.max(48, warningScore - Math.round(penalty * 0.8));
+    }
+    const colorWarningText = isColorWarning && harmony?.notes.length ? ` Lưu ý màu sắc: ${harmony.notes[0]}` : '';
+    const baseWarningText = isWarning
+      ? (isSacredPlace
+          ? `Bản phối Gen Z rất cá tính nhưng cần tiết chế khi ${eventType}. Hãy đổi sang quần lụa truyền thống và tháo phụ kiện đường phố khi vào nơi tôn nghiêm nhé!`
+          : `Bản phối rất cá tính! Việc kết hợp phụ kiện hiện đại mang lại tinh thần Gen Z năng động cho dịp ${eventType}. Tuy nhiên, nếu ghé thăm các di tích lịch sử, bạn nên tháo kính râm để giữ sự trang trọng.`)
+      : `Phối màu giữa áo và hạ y cần thêm độ tương phản hoặc giảm sắc độ để tôn trọn nét nhã nhặn cổ phong.`;
+
     return {
       lookbook_title: 'Đông Kinh Phá Cách',
-      style_score: isSacredPlace ? 68 : 85,
+      style_score: warningScore,
       weather_advice: weatherAdvice,
       cultural_status: 'WARNING',
-      cultural_warning_msg: isSacredPlace
-        ? `Bản phối Gen Z rất cá tính nhưng cần tiết chế khi ${eventType}. Hãy đổi sang quần lụa truyền thống và tháo phụ kiện đường phố khi vào nơi tôn nghiêm nhé!`
-        : `Bản phối rất cá tính! Việc kết hợp phụ kiện hiện đại mang lại tinh thần Gen Z năng động cho dịp ${eventType}. Tuy nhiên, nếu ghé thăm các di tích lịch sử, bạn nên tháo kính râm để giữ sự trang trọng.`,
+      cultural_warning_msg: `${baseWarningText}${colorWarningText ? ' ' + colorWarningText : ''}`,
       cultural_history_fact: historySnippet,
       custom_request_feedback: customFeedback,
       recommended_color_hex: recColorHex || '#9A2B1D',
       recommended_pattern_id: recPatternId === 'none' ? 'pattern_chim_lac' : recPatternId,
+      genz_ai_comment: genzComment,
     };
   }
 
@@ -257,9 +302,14 @@ function computeInstantPreview(
   else if (lowerTop.includes('chàm')) poeticTitle = 'Sơn Thủy Hữu Tình';
   else if (lowerTop.includes('bạch ngọc')) poeticTitle = 'Bạch Hạc Tầm Xuân';
 
+  let safeScore = 98;
+  if (harmony) {
+    safeScore = Math.max(80, Math.min(100, Math.round(92 * 0.3 + harmony.score * 0.7)));
+  }
+
   return {
     lookbook_title: poeticTitle,
-    style_score: 98,
+    style_score: safeScore,
     weather_advice: weatherAdvice,
     cultural_status: 'SAFE',
     cultural_warning_msg: `Trang phục hoàn hảo! Sự kết hợp giữa ${topFullString}, ${patternLabel} và ${bottomName} thể hiện trọn vẹn nét nhã nhặn, tôn nghiêm đúng chuẩn mực truyền thống.`,
@@ -267,6 +317,7 @@ function computeInstantPreview(
     custom_request_feedback: customFeedback,
     recommended_color_hex: recColorHex,
     recommended_pattern_id: recPatternId,
+    genz_ai_comment: genzComment,
   };
 }
 
@@ -374,6 +425,13 @@ function VStylistWorkspace() {
   const [copiedJson, setCopiedJson] = useState<boolean>(false);
   const [customJsonInput, setCustomJsonInput] = useState<string>('');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [isGenzAlertOpen, setIsGenzAlertOpen] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (evaluation.genz_ai_comment) {
+      setIsGenzAlertOpen(true);
+    }
+  }, [evaluation.genz_ai_comment]);
 
   const currentTop =
     TOP_GARMENTS.find((t) => t.id === selectedTopId) || TOP_GARMENTS[0];
@@ -381,6 +439,13 @@ function VStylistWorkspace() {
     TRADITIONAL_COLORS.find((c) => c.id === selectedColorId) || TRADITIONAL_COLORS[0];
   const currentBottom =
     BOTTOM_GARMENTS.find((b) => b.name === selectedBottomName) || BOTTOM_GARMENTS[0];
+  const colorHarmony = harmonyScore({
+    ao: outfit.colors.ao,
+    quan: outfit.colors.quan,
+    hoaTiet: outfit.colors.hoaTiet,
+  });
+  const colorHarmonyNeedsAttention =
+    colorHarmony.notes.length > 0 || colorHarmony.score < 76;
   const currentFabric =
     FABRIC_MATERIALS.find((f) => f.id === selectedFabricMaterial) || FABRIC_MATERIALS[0];
 
@@ -440,7 +505,12 @@ function VStylistWorkspace() {
       customCondition,
       selectedEvent,
       userCustomRequest,
-      currentTop.historySnippet
+      currentTop.historySnippet,
+      {
+        ao: outfit.colors.ao,
+        quan: outfit.colors.quan,
+        hoaTiet: outfit.colors.hoaTiet,
+      }
     );
     setEvaluation(instant);
   }, [
@@ -454,6 +524,9 @@ function VStylistWorkspace() {
     selectedEvent,
     userCustomRequest,
     currentTop.historySnippet,
+    outfit.colors.ao,
+    outfit.colors.quan,
+    outfit.colors.hoaTiet,
   ]);
 
   useEffect(() => {
@@ -1559,6 +1632,53 @@ function VStylistWorkspace() {
                     </div>
                   </div>
 
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className={`border p-2.5 transition-colors ${
+                      colorHarmonyNeedsAttention
+                        ? 'border-[#D97706]/60 bg-[#FFFBEB] text-[#78350F] shadow-xs'
+                        : 'border-[#2E7D5B]/25 bg-[#2E7D5B]/8 text-[#214C37]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="font-bold flex items-center gap-1.5">
+                        {colorHarmonyNeedsAttention ? (
+                          <>
+                            <span className="text-sm leading-none">⚠️</span>
+                            <span className="text-[#B45309]">Màu sắc chưa hợp bạn uii!</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-sm leading-none">✨</span>
+                            <span className="text-[#14532D]">Hài hòa màu sắc</span>
+                          </>
+                        )}
+                      </span>
+                      <span className="font-mono-tabular font-bold">
+                        {colorHarmony.score}/100
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-relaxed">
+                      {colorHarmonyNeedsAttention
+                        ? colorHarmony.notes[0] ||
+                          'Áo và quần đang hơi lệch tông, bạn thử đổi sang Quần lụa trắng ngà (#F5F1E8) hoặc chọn màu trung tính cho hài hòa nhen!'
+                        : colorHarmony.label}
+                    </p>
+                    {colorHarmonyNeedsAttention && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivePresetId('');
+                          setTrouserColorHex('#F5F1E8');
+                        }}
+                        className="mt-2 px-2.5 py-1 text-[10px] font-bold bg-[#9A3412] hover:bg-[#7C2D12] text-white flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <span>✨ Đổi sang Quần Trắng Ngà chuẩn đẹp</span>
+                      </button>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-1 gap-2">
                     {BOTTOM_GARMENTS.map((bottom) => {
                       const selected = selectedBottomName === bottom.name;
@@ -1802,7 +1922,49 @@ function VStylistWorkspace() {
         </section>
 
         {/* COLUMN 2 (Center, 4 cols on laptop, 5 on wide screens): Interactive 3D Studio */}
-        <section className="lg:col-span-4 xl:col-span-5 flex flex-col min-h-[440px] lg:min-h-0">
+        <section className="lg:col-span-4 xl:col-span-5 flex flex-col min-h-[440px] lg:min-h-0 relative">
+          {evaluation.genz_ai_comment && isGenzAlertOpen && (
+            <div className="absolute top-2 left-2 right-2 z-30 transition-all">
+              <div className="bg-[#FFFBEB]/95 backdrop-blur-md border border-[#F59E0B] p-2.5 sm:p-3 shadow-lg flex items-start gap-2.5">
+                <div className="w-7 h-7 rounded-full bg-[#D97706] text-white flex items-center justify-center shrink-0 text-sm shadow-xs font-bold">
+                  🔥
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#92400E]">
+                        AI Stylist GenZ "bắt bài"
+                      </span>
+                      <span className="px-1.5 py-0.2 text-[9px] font-bold bg-[#FDE68A] text-[#92400E] uppercase">
+                        {evaluation.cultural_status === 'CRITICAL' ? 'Bất hòa' : 'Lệch quẻ'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsGenzAlertOpen(false)}
+                      className="text-[#92400E] hover:text-[#78350F] text-xs font-bold px-1.5 cursor-pointer"
+                      title="Đóng"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#78350F] font-medium leading-relaxed mt-1">
+                    {evaluation.genz_ai_comment}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFixToTraditionalSafe}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-[#9A3412] hover:bg-[#7C2D12] text-[#FBF9F5] flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                    >
+                      <Wand2 className="w-3 h-3" />
+                      <span>Sửa chuẩn liền ní ơi ✨</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <VietPhucCanvas
             genderEn={genderEn}
             onToggleGender={handleToggleGender}
@@ -2099,6 +2261,20 @@ function VStylistWorkspace() {
                   <p className="text-xs sm:text-sm text-[#1C1917] leading-relaxed">
                     {evaluation.cultural_warning_msg}
                   </p>
+
+                  {evaluation.genz_ai_comment && (
+                    <div className="mt-2.5 p-2.5 bg-[#FFFBEB] border border-[#F59E0B]/50 text-[#78350F] text-xs leading-relaxed flex items-start gap-2 shadow-xs">
+                      <span className="text-base leading-none shrink-0 select-none">🔥</span>
+                      <div className="space-y-0.5 min-w-0">
+                        <strong className="text-[11px] uppercase tracking-wider font-bold text-[#B45309] block">
+                          AI Stylist GenZ "bắt bài":
+                        </strong>
+                        <p className="text-xs text-[#78350F] leading-relaxed italic">
+                          "{evaluation.genz_ai_comment}"
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Weather Advice */}
