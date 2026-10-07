@@ -910,23 +910,32 @@ function VStylistWorkspace() {
   const handleApplyRemixLook = (look: RemixLook) => {
     const selectedColor = TRADITIONAL_COLORS.find(
       (color) => color.hex.toLowerCase() === look.mainColor.toLowerCase()
-    ) || TRADITIONAL_COLORS[0];
+    );
     const selectedBottom = BOTTOM_GARMENTS.find(
       (bottom) => bottom.name === look.bottomName
     ) || BOTTOM_GARMENTS[0];
+    const targetAoHex = look.mainColor || selectedColor?.hex || TRADITIONAL_COLORS[0].hex;
+    const targetQuanHex = look.bottomColor || selectedBottom.hex;
+
+    if (look.fabricMaterialId) {
+      setSelectedFabricMaterial(look.fabricMaterialId);
+    }
 
     setOutfit((current) => ({
       ...current,
       costumeId: look.costumeId,
       patternId: look.patternId,
+      necklineCut: look.necklineCut || 'co-truyen-thong',
+      hemLengthCut: look.hemLengthCut || 'ta-dai-chuan',
       colors: {
         ...current.colors,
-        ao: selectedColor.hex,
-        primary: selectedColor.hex,
-        primaryId: selectedColor.id,
-        quan: look.bottomColor || selectedBottom.hex,
-        trouser: look.bottomColor || selectedBottom.hex,
+        ao: targetAoHex,
+        primary: targetAoHex,
+        primaryId: selectedColor ? selectedColor.id : current.colors.primaryId,
+        quan: targetQuanHex,
+        trouser: targetQuanHex,
         trouserName: selectedBottom.name,
+        hoaTiet: look.hoaTietHex || current.colors.hoaTiet,
         enableTrouserKey: true,
       },
       accessories: look.accessoryIds.map((accessoryId) => mapAccessoryIdToName(accessoryId)),
@@ -950,8 +959,8 @@ function VStylistWorkspace() {
       gender: saved.gender,
       costumeId: saved.costumeId,
       region: saved.region,
-      patternId: saved.patternId,
-      colors: { ...current.colors, ao: saved.colors.ao, primary: saved.colors.ao, primaryId: color.id, quan: saved.colors.quan, trouser: saved.colors.quan, trouserName: bottom.name, hoaTiet: saved.colors.hoaTiet, enableTrouserKey: true },
+      patternId: (saved.patternId as PatternId) || 'none',
+      colors: { ...current.colors, ao: saved.colors.ao, primary: saved.colors.ao, primaryId: color.id, quan: saved.colors.quan, trouser: saved.colors.quan, trouserName: bottom.name, hoaTiet: saved.colors.hoaTiet || current.colors.hoaTiet, enableTrouserKey: true },
       accessories: saved.accessories,
       event: saved.event,
       remix: saved.remix,

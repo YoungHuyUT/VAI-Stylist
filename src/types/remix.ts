@@ -1,6 +1,12 @@
-import { PatternId } from '../data/vietPhucData';
+import {
+  PatternId,
+  FabricMaterialId,
+  NecklineCutId,
+  HemLengthCutId,
+} from '../data/vietPhucData';
 
 export type RemixThemeId =
+  | 'all'
   | 'heritage'
   | 'everyday'
   | 'editorial'
@@ -9,6 +15,7 @@ export type RemixThemeId =
 
 export interface RemixLook {
   id: RemixThemeId;
+  uid?: string;
   title: string;
   tagline: string;
   stylistNote: string;
@@ -17,6 +24,10 @@ export interface RemixLook {
   bottomName: string;
   bottomColor: string;
   patternId: PatternId;
+  hoaTietHex?: string;
+  fabricMaterialId?: FabricMaterialId;
+  necklineCut?: NecklineCutId;
+  hemLengthCut?: HemLengthCutId;
   accessoryIds: string[];
   remix: number;
   contextNote: string;
