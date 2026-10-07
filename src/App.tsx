@@ -79,6 +79,8 @@ import {
 import {
   loadCustomPatternMaskIntoCache,
   getPatternMaskFromIndexedDb,
+  prunePatternMasksInIndexedDb,
+  invalidatePatternMaskInIndexedDb,
   exportPatternsZip,
 } from './utils/vstylistStorageAndZip';
 import { invalidatePatternTextureCache } from './components/vietPhucGlbLoader';
@@ -370,16 +372,18 @@ function VStylistWorkspace() {
     text?: string;
   } | null>(null);
 
-  // Hydrate any cached pattern masks from IndexedDB on mount
+  // Prune expired/excess pattern masks and hydrate valid cached pattern masks from IndexedDB on mount
   useEffect(() => {
-    TRADITIONAL_PATTERNS.forEach((pat) => {
-      if (pat.id === 'none') return;
-      getPatternMaskFromIndexedDb(pat.id).then((cachedUrl) => {
-        if (cachedUrl) {
-          loadCustomPatternMaskIntoCache(pat.id, cachedUrl).then(() => {
-            invalidatePatternTextureCache(pat.id);
-          });
-        }
+    prunePatternMasksInIndexedDb().finally(() => {
+      TRADITIONAL_PATTERNS.forEach((pat) => {
+        if (pat.id === 'none') return;
+        getPatternMaskFromIndexedDb(pat.id).then((cachedUrl) => {
+          if (cachedUrl) {
+            loadCustomPatternMaskIntoCache(pat.id, cachedUrl, false).then(() => {
+              invalidatePatternTextureCache(pat.id);
+            });
+          }
+        });
       });
     });
   }, []);
@@ -585,6 +589,13 @@ function VStylistWorkspace() {
         setHairStyle('toc-ivy');
       }
     }
+  };
+
+  const handleResetPatternMaskCache = async () => {
+    if (selectedPattern === 'none') return;
+    await invalidatePatternMaskInIndexedDb(selectedPattern);
+    invalidatePatternTextureCache(selectedPattern);
+    setPatternConfig({ strength: outfit.patternConfig.strength });
   };
 
   const handleGenerateAiPatternMask = async () => {
@@ -1377,20 +1388,33 @@ function VStylistWorkspace() {
                           </span>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={handleGenerateAiPatternMask}
-                          disabled={isGeneratingPatternMask}
-                          className="px-2 py-1 bg-[#9A3412] hover:bg-[#7C2D12] text-[#FBF9F5] text-[10px] font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                          title={`Tạo mask liền mạch bằng ${IMAGE_MODEL} và lưu vào IndexedDB`}
-                        >
-                          <Sparkles className="w-3 h-3 text-[#FDE68A]" />
-                          <span>
-                            {isGeneratingPatternMask
-                              ? 'Đang tạo mask AI...'
-                              : 'Tạo mask AI'}
-                          </span>
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={handleResetPatternMaskCache}
+                            disabled={isGeneratingPatternMask}
+                            className="px-2 py-1 bg-[#EBE6DF] hover:bg-[#1C1917] hover:text-[#FBF9F5] text-[#1C1917] border border-[#DFD8C8] text-[10px] font-medium flex items-center gap-1 cursor-pointer disabled:opacity-50 transition-colors"
+                            title="Xóa cache mask AI của họa tiết này trong IndexedDB và khôi phục hoa văn gốc"
+                          >
+                            <RefreshCw className="w-2.5 h-2.5" />
+                            <span>Xóa cache</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleGenerateAiPatternMask}
+                            disabled={isGeneratingPatternMask}
+                            className="px-2 py-1 bg-[#9A3412] hover:bg-[#7C2D12] text-[#FBF9F5] text-[10px] font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            title={`Tạo mask liền mạch bằng ${IMAGE_MODEL} và lưu vào IndexedDB`}
+                          >
+                            <Sparkles className="w-3 h-3 text-[#FDE68A]" />
+                            <span>
+                              {isGeneratingPatternMask
+                                ? 'Đang tạo mask AI...'
+                                : 'Tạo mask AI'}
+                            </span>
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 text-[10px]">

@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
-import { VIET_PHUC_QUEST_STAGES } from './src/data/vietPhucQuest';
+import { VIET_PHUC_QUEST_STAGES } from './src/data/vietPhucQuest.ts';
 
 dotenv.config();
 
@@ -382,12 +382,12 @@ function deterministicCulturalEvaluation(input: OutfitEvaluationInput): OutfitEv
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10) || 3000;
 
   app.use(express.json({ limit: '30mb' }));
 
-  app.get('/healthz', (_req, res) => {
-    res.status(200).json({ status: 'ok' });
+  app.get(['/healthz', '/_ah/health', '/api/health'], (_req, res) => {
+    res.status(200).json({ status: 'ok', port: PORT });
   });
 
   app.post('/api/evaluate-outfit', async (req, res) => {
@@ -2728,19 +2728,24 @@ Transform Image 1 into a 100% authentic, real-life photograph where the exact pe
   app.get('/models/:file', serveSuppliedModelAsset);
   app.get('/public/models/:file', serveSuppliedModelAsset);
 
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.resolve(__dirname, 'dist');
+  const distIndexHtml = path.join(distPath, 'index.html');
+  const isDevMode =
+    process.env.npm_lifecycle_event === 'dev' &&
+    process.env.NODE_ENV !== 'production';
+
+  if (!isDevMode && fs.existsSync(distIndexHtml)) {
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(distIndexHtml);
+    });
+  } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

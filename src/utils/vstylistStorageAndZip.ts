@@ -13,11 +13,43 @@ import {
 import { PatternTransformConfig } from '../state/outfitStore';
 
 const DB_NAME = 'vstylist_3d_db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const CURRENT_CHROMA_VERSION = 19;
 const STORE_GLB = 'glb_models';
 const STORE_TURNTABLE = 'turntable_frames';
 const STORE_PATTERNS = 'pattern_masks';
+
+// Cache invalidation & storage quota limits for pattern masks and turntable caches
+export const PATTERN_MASK_CACHE_VERSION = 2;
+export const MAX_PATTERN_MASK_ENTRIES = 8;
+export const MAX_PATTERN_MASK_TOTAL_BYTES = 4 * 1024 * 1024; // 4 MB cap for pattern masks
+export const PATTERN_MASK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days TTL
+const MAX_TURNTABLE_IDB_ENTRIES = 12;
+const MAX_RECOLORED_CANVAS_CACHE_ENTRIES = 64;
+const MAX_LOADED_IMAGE_CACHE_ENTRIES = 96;
+
+export interface StoredPatternMaskRecord {
+  patternId: string;
+  maskDataUrl: string;
+  byteSize: number;
+  createdAt: number;
+  updatedAt: number;
+  lastAccessedAt: number;
+  version: number;
+}
+
+export interface PatternMaskCacheStats {
+  count: number;
+  totalBytes: number;
+  maxBytes: number;
+  maxEntries: number;
+  items: Array<{
+    patternId: string;
+    byteSize: number;
+    updatedAt: number;
+    lastAccessedAt: number;
+  }>;
+}
 
 export interface StoredTurntableData {
   modelId: string;
@@ -158,26 +190,347 @@ export async function getTurntableFromIndexedDb(
   });
 }
 
-export async function savePatternMaskToIndexedDb(
-  patternId: PatternId,
-  maskDataUrl: string
-): Promise<void> {
+function estimateDataUrlBytes(dataUrl: string): number {
+  if (!dataUrl) return 0;
+  const commaIdx = dataUrl.indexOf(',');
+  const base64Length = commaIdx >= 0 ? dataUrl.length - (commaIdx + 1) : dataUrl.length;
+  return Math.ceil((base64Length * 3) / 4);
+}
+
+function isQuotaExceededError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof DOMException) {
+    return (
+      err.name === 'QuotaExceededError' ||
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err.code === 22 ||
+      err.code === 1014
+    );
+  }
+  const msg = String((err as { name?: string; message?: string })?.name || err);
+  return msg.includes('QuotaExceeded') || msg.includes('QUOTA');
+}
+
+function clearDependentCachesForPattern(patternId?: string): void {
+  if (patternId) {
+    patternMaskCanvasCache.delete(patternId as PatternId);
+  } else {
+    patternMaskCanvasCache.clear();
+  }
+  for (const [key, outUrl] of recoloredFrameCache.entries()) {
+    if (!patternId || key.includes(`|${patternId}|`)) {
+      recoloredCanvasCache.delete(outUrl);
+      loadedImageCache.delete(outUrl);
+      recoloredFrameCache.delete(key);
+    }
+  }
+  garmentBaseFrameCache.clear();
+}
+
+/**
+ * Prunes stale, version-mismatched, TTL-expired, or excess (LRU / byte-quota) pattern masks
+ * from IndexedDB and synchronizes in-memory caches so storage never overflows.
+ */
+export async function prunePatternMasksInIndexedDb(options?: {
+  maxEntries?: number;
+  maxTotalBytes?: number;
+  ttlMs?: number;
+  excludePatternId?: string;
+}): Promise<{
+  evictedIds: string[];
+  remainingCount: number;
+  remainingBytes: number;
+}> {
+  const maxEntries = options?.maxEntries ?? MAX_PATTERN_MASK_ENTRIES;
+  const maxTotalBytes = options?.maxTotalBytes ?? MAX_PATTERN_MASK_TOTAL_BYTES;
+  const ttlMs = options?.ttlMs ?? PATTERN_MASK_TTL_MS;
+  const excludeId = options?.excludePatternId;
+
   const db = await openVStylistDb();
-  if (!db) return;
+  if (!db) {
+    return { evictedIds: [], remainingCount: 0, remainingBytes: 0 };
+  }
+
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(STORE_PATTERNS, 'readwrite');
-      tx.objectStore(STORE_PATTERNS).put({
-        patternId,
-        maskDataUrl,
-        updatedAt: Date.now(),
-      });
+      const store = tx.objectStore(STORE_PATTERNS);
+      const getAllReq = store.getAll();
+      const evictedIds: string[] = [];
+      let remainingCount = 0;
+      let remainingBytes = 0;
+
+      getAllReq.onsuccess = () => {
+        const rawRecords = (getAllReq.result || []) as Array<Partial<StoredPatternMaskRecord>>;
+        const now = Date.now();
+        const validRecords: StoredPatternMaskRecord[] = [];
+
+        for (const rec of rawRecords) {
+          const id = rec.patternId;
+          if (!id) continue;
+          const dataUrl = typeof rec.maskDataUrl === 'string' ? rec.maskDataUrl : '';
+          const lastTouch = rec.lastAccessedAt || rec.updatedAt || 0;
+          const isExpired = ttlMs > 0 && lastTouch > 0 && now - lastTouch > ttlMs;
+          const isOutdatedVersion =
+            rec.version !== undefined && rec.version !== PATTERN_MASK_CACHE_VERSION;
+          const isInvalidData = !dataUrl.startsWith('data:image/');
+
+          if (id !== excludeId && (isExpired || isOutdatedVersion || isInvalidData)) {
+            store.delete(id);
+            evictedIds.push(id);
+            continue;
+          }
+
+          const byteSize =
+            typeof rec.byteSize === 'number' && rec.byteSize > 0
+              ? rec.byteSize
+              : estimateDataUrlBytes(dataUrl);
+
+          validRecords.push({
+            patternId: id,
+            maskDataUrl: dataUrl,
+            byteSize,
+            createdAt: rec.createdAt || rec.updatedAt || now,
+            updatedAt: rec.updatedAt || now,
+            lastAccessedAt: lastTouch || now,
+            version: PATTERN_MASK_CACHE_VERSION,
+          });
+        }
+
+        // Sort most-recently accessed first (keep excludeId pinned at top)
+        validRecords.sort((a, b) => {
+          if (a.patternId === excludeId) return -1;
+          if (b.patternId === excludeId) return 1;
+          return b.lastAccessedAt - a.lastAccessedAt;
+        });
+
+        for (const rec of validRecords) {
+          const wouldExceedCount = remainingCount >= maxEntries;
+          const wouldExceedBytes =
+            remainingCount > 0 && remainingBytes + rec.byteSize > maxTotalBytes;
+
+          if (rec.patternId !== excludeId && (wouldExceedCount || wouldExceedBytes)) {
+            store.delete(rec.patternId);
+            evictedIds.push(rec.patternId);
+          } else {
+            remainingCount++;
+            remainingBytes += rec.byteSize;
+          }
+        }
+      };
+
+      tx.oncomplete = () => {
+        for (const evictedId of evictedIds) {
+          clearDependentCachesForPattern(evictedId);
+        }
+        resolve({ evictedIds, remainingCount, remainingBytes });
+      };
+      tx.onerror = () => resolve({ evictedIds, remainingCount, remainingBytes });
+    } catch {
+      resolve({ evictedIds: [], remainingCount: 0, remainingBytes: 0 });
+    }
+  });
+}
+
+/**
+ * Prunes outdated or oldest turntable entries in IndexedDB to free up browser storage quota.
+ */
+export async function pruneTurntablesInIndexedDb(
+  maxEntries = MAX_TURNTABLE_IDB_ENTRIES
+): Promise<number> {
+  const db = await openVStylistDb();
+  if (!db) return 0;
+
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_TURNTABLE, 'readwrite');
+      const store = tx.objectStore(STORE_TURNTABLE);
+      const req = store.getAll();
+      let deleted = 0;
+
+      req.onsuccess = () => {
+        const all = (req.result || []) as StoredTurntableData[];
+        const valid: StoredTurntableData[] = [];
+
+        for (const item of all) {
+          if (!item?.modelId || item.chromaVersion !== CURRENT_CHROMA_VERSION) {
+            if (item?.modelId) {
+              store.delete(item.modelId);
+              deleted++;
+            }
+          } else {
+            valid.push(item);
+          }
+        }
+
+        valid.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        for (let i = maxEntries; i < valid.length; i++) {
+          store.delete(valid[i].modelId);
+          deleted++;
+        }
+      };
+
+      tx.oncomplete = () => resolve(deleted);
+      tx.onerror = () => resolve(deleted);
+    } catch {
+      resolve(0);
+    }
+  });
+}
+
+/**
+ * Explicitly invalidates one pattern mask (or all custom pattern masks if patternId is omitted)
+ * from both IndexedDB and in-memory canvas/texture caches.
+ */
+export async function invalidatePatternMaskInIndexedDb(
+  patternId?: PatternId | string
+): Promise<void> {
+  clearDependentCachesForPattern(patternId);
+  const db = await openVStylistDb();
+  if (!db) return;
+
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_PATTERNS, 'readwrite');
+      const store = tx.objectStore(STORE_PATTERNS);
+      if (patternId) {
+        store.delete(patternId);
+      } else {
+        store.clear();
+      }
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     } catch {
       resolve();
     }
   });
+}
+
+/**
+ * Returns live statistics on IndexedDB pattern mask cache usage.
+ */
+export async function getPatternMaskCacheStats(): Promise<PatternMaskCacheStats> {
+  const db = await openVStylistDb();
+  if (!db) {
+    return {
+      count: 0,
+      totalBytes: 0,
+      maxBytes: MAX_PATTERN_MASK_TOTAL_BYTES,
+      maxEntries: MAX_PATTERN_MASK_ENTRIES,
+      items: [],
+    };
+  }
+
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_PATTERNS, 'readonly');
+      const req = tx.objectStore(STORE_PATTERNS).getAll();
+      req.onsuccess = () => {
+        const records = (req.result || []) as Array<Partial<StoredPatternMaskRecord>>;
+        const items = records
+          .filter((r) => Boolean(r?.patternId))
+          .map((r) => {
+            const byteSize =
+              typeof r.byteSize === 'number' && r.byteSize > 0
+                ? r.byteSize
+                : estimateDataUrlBytes(r.maskDataUrl || '');
+            return {
+              patternId: String(r.patternId),
+              byteSize,
+              updatedAt: r.updatedAt || 0,
+              lastAccessedAt: r.lastAccessedAt || r.updatedAt || 0,
+            };
+          })
+          .sort((a, b) => b.lastAccessedAt - a.lastAccessedAt);
+
+        const totalBytes = items.reduce((acc, item) => acc + item.byteSize, 0);
+        resolve({
+          count: items.length,
+          totalBytes,
+          maxBytes: MAX_PATTERN_MASK_TOTAL_BYTES,
+          maxEntries: MAX_PATTERN_MASK_ENTRIES,
+          items,
+        });
+      };
+      req.onerror = () =>
+        resolve({
+          count: 0,
+          totalBytes: 0,
+          maxBytes: MAX_PATTERN_MASK_TOTAL_BYTES,
+          maxEntries: MAX_PATTERN_MASK_ENTRIES,
+          items: [],
+        });
+    } catch {
+      resolve({
+        count: 0,
+        totalBytes: 0,
+        maxBytes: MAX_PATTERN_MASK_TOTAL_BYTES,
+        maxEntries: MAX_PATTERN_MASK_ENTRIES,
+        items: [],
+      });
+    }
+  });
+}
+
+export async function savePatternMaskToIndexedDb(
+  patternId: PatternId,
+  maskDataUrl: string
+): Promise<void> {
+  const db = await openVStylistDb();
+  if (!db) return;
+
+  const byteSize = estimateDataUrlBytes(maskDataUrl);
+  const now = Date.now();
+
+  // Pre-prune expired or excess masks before writing so we stay well within byte/entry budgets
+  await prunePatternMasksInIndexedDb({
+    maxEntries: Math.max(1, MAX_PATTERN_MASK_ENTRIES - 1),
+    maxTotalBytes: Math.max(byteSize, MAX_PATTERN_MASK_TOTAL_BYTES - byteSize),
+    excludePatternId: patternId,
+  });
+
+  const writeRecord = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      try {
+        const tx = db.transaction(STORE_PATTERNS, 'readwrite');
+        const record: StoredPatternMaskRecord = {
+          patternId,
+          maskDataUrl,
+          byteSize,
+          createdAt: now,
+          updatedAt: now,
+          lastAccessedAt: now,
+          version: PATTERN_MASK_CACHE_VERSION,
+        };
+        tx.objectStore(STORE_PATTERNS).put(record);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => {
+          if (isQuotaExceededError(tx.error)) {
+            resolve(false);
+          } else {
+            resolve(true);
+          }
+        };
+      } catch (err) {
+        if (isQuotaExceededError(err)) {
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      }
+    });
+
+  const firstAttemptOk = await writeRecord();
+  if (!firstAttemptOk) {
+    // Emergency quota recovery: aggressively evict old pattern masks & stale turntables, then retry once
+    await pruneTurntablesInIndexedDb(4);
+    await prunePatternMasksInIndexedDb({
+      maxEntries: 2,
+      maxTotalBytes: Math.max(byteSize, Math.floor(MAX_PATTERN_MASK_TOTAL_BYTES / 2)),
+      excludePatternId: patternId,
+    });
+    await writeRecord();
+  }
 }
 
 export async function getPatternMaskFromIndexedDb(
@@ -187,11 +540,41 @@ export async function getPatternMaskFromIndexedDb(
   if (!db) return null;
   return new Promise((resolve) => {
     try {
-      const tx = db.transaction(STORE_PATTERNS, 'readonly');
-      const req = tx.objectStore(STORE_PATTERNS).get(patternId);
+      const tx = db.transaction(STORE_PATTERNS, 'readwrite');
+      const store = tx.objectStore(STORE_PATTERNS);
+      const req = store.get(patternId);
       req.onsuccess = () => {
-        const val = req.result;
-        resolve(val?.maskDataUrl || null);
+        const val = req.result as Partial<StoredPatternMaskRecord> | undefined;
+        if (!val || typeof val.maskDataUrl !== 'string' || !val.maskDataUrl.startsWith('data:image/')) {
+          resolve(null);
+          return;
+        }
+
+        const now = Date.now();
+        const lastTouch = val.lastAccessedAt || val.updatedAt || 0;
+        const isExpired = lastTouch > 0 && now - lastTouch > PATTERN_MASK_TTL_MS;
+        const isOutdatedVersion =
+          val.version !== undefined && val.version !== PATTERN_MASK_CACHE_VERSION;
+
+        if (isExpired || isOutdatedVersion) {
+          store.delete(patternId);
+          clearDependentCachesForPattern(patternId);
+          resolve(null);
+          return;
+        }
+
+        // Update LRU timestamp and ensure schema version/byteSize metadata is normalized
+        store.put({
+          patternId,
+          maskDataUrl: val.maskDataUrl,
+          byteSize: val.byteSize || estimateDataUrlBytes(val.maskDataUrl),
+          createdAt: val.createdAt || val.updatedAt || now,
+          updatedAt: val.updatedAt || now,
+          lastAccessedAt: now,
+          version: PATTERN_MASK_CACHE_VERSION,
+        } satisfies StoredPatternMaskRecord);
+
+        resolve(val.maskDataUrl);
       };
       req.onerror = () => resolve(null);
     } catch {
@@ -270,7 +653,11 @@ export function clearRecoloredFrameCacheForModel(modelId: string): void {
 
 export function loadImageElement(src: string): Promise<HTMLImageElement> {
   if (loadedImageCache.has(src)) {
-    return Promise.resolve(loadedImageCache.get(src)!);
+    const cachedImg = loadedImageCache.get(src)!;
+    // Refresh LRU order in Map
+    loadedImageCache.delete(src);
+    loadedImageCache.set(src, cachedImg);
+    return Promise.resolve(cachedImg);
   }
   const cachedCanvas =
     recoloredCanvasCache.get(src) || rawFrameCanvasCache.get(src);
@@ -279,6 +666,10 @@ export function loadImageElement(src: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
+      if (loadedImageCache.size >= MAX_LOADED_IMAGE_CACHE_ENTRIES) {
+        const oldestKey = loadedImageCache.keys().next().value;
+        if (oldestKey) loadedImageCache.delete(oldestKey);
+      }
       loadedImageCache.set(src, img);
       resolve(img);
     };
@@ -1839,7 +2230,8 @@ export function getOrCreateProceduralPatternMaskCanvas(
 
 export async function loadCustomPatternMaskIntoCache(
   patternId: PatternId,
-  dataUrl: string
+  dataUrl: string,
+  persistToIndexedDb = true
 ): Promise<HTMLCanvasElement> {
   const img = await loadImageElement(dataUrl);
   const size = 512;
@@ -1848,10 +2240,13 @@ export async function loadCustomPatternMaskIntoCache(
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0, size, size);
+
+  clearDependentCachesForPattern(patternId);
   patternMaskCanvasCache.set(patternId, canvas);
-  await savePatternMaskToIndexedDb(patternId, canvas.toDataURL('image/png'));
-  recoloredFrameCache.clear();
-  garmentBaseFrameCache.clear();
+
+  if (persistToIndexedDb) {
+    await savePatternMaskToIndexedDb(patternId, canvas.toDataURL('image/png'));
+  }
   return canvas;
 }
 
@@ -4443,8 +4838,19 @@ export async function renderRecoloredTurntableFrame(params: {
     ctx.restore();
   }
 
-  // Store full-resolution 768x1152 canvas directly in cache without blocking on PNG compression
+  // Store full-resolution 768x1152 canvas directly in cache with LRU cap to prevent memory bloat
   const outUrl = `vstylist-canvas://${cacheKey}`;
+  if (recoloredFrameCache.size >= MAX_RECOLORED_CANVAS_CACHE_ENTRIES) {
+    const oldestKey = recoloredFrameCache.keys().next().value;
+    if (oldestKey) {
+      const oldestUrl = recoloredFrameCache.get(oldestKey);
+      if (oldestUrl) {
+        recoloredCanvasCache.delete(oldestUrl);
+        loadedImageCache.delete(oldestUrl);
+      }
+      recoloredFrameCache.delete(oldestKey);
+    }
+  }
   recoloredFrameCache.set(cacheKey, outUrl);
   recoloredCanvasCache.set(outUrl, canvas);
   return outUrl;
