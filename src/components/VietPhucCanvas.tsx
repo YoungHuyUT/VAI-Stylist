@@ -107,6 +107,22 @@ function scheduleIdleTask(task: () => void): () => void {
 
 const CLOTH_NODE_COUNT = 8;
 
+export type PubgIdleMode = 'pubg-lobby' | 'pubg-breeze' | 'off';
+
+/**
+ * Frame-rate independent Delta-Time Tweening state for character respiration.
+ * Uses an EMA-smoothed delta-time accumulator and exponential decay tweening
+ * (`1 - Math.exp(-lambda * dt)`) so breathing remains 100% smooth across FPS fluctuations.
+ */
+export interface BreathTweenState {
+  phaseRad: number;
+  smoothedDt: number;
+  diaphragm01: number;
+  chest01: number;
+  shoulder01: number;
+  head01: number;
+}
+
 interface ClothPhysicsChainState {
   nodesX: Float32Array;
   velX: Float32Array;
@@ -114,6 +130,82 @@ interface ClothPhysicsChainState {
   flareVel: number;
   prevAngleDeg: number;
   lastTimestamp: number;
+  breathTween: BreathTweenState;
+}
+
+function createInitialBreathTweenState(): BreathTweenState {
+  return {
+    phaseRad: 0,
+    smoothedDt: 1 / 60,
+    diaphragm01: 0,
+    chest01: 0,
+    shoulder01: 0,
+    head01: 0,
+  };
+}
+
+/**
+ * C2-continuous quintic smoothstep (zero velocity & zero acceleration jump at turnarounds)
+ */
+function smootherstep01(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
+ * Evaluates target physiological breathing channels at a given continuous phase angle (radians).
+ */
+function evaluateBreathTargetsFromPhase(phaseRad: number): {
+  diaphragm01: number;
+  chest01: number;
+  shoulder01: number;
+  head01: number;
+} {
+  const computeWave = (lagRad: number) => {
+    const theta = phaseRad - lagRad;
+    const warpedPhase = theta + 0.16 * Math.sin(theta);
+    const raw01 = (Math.sin(warpedPhase) + 1) * 0.5;
+    return smootherstep01(raw01);
+  };
+
+  return {
+    diaphragm01: computeWave(0.0),
+    chest01: computeWave(0.18),
+    shoulder01: computeWave(0.32),
+    head01: computeWave(0.45),
+  };
+}
+
+/**
+ * Advances the Delta-Time Synchronized Breathing Tweening Engine by `rawDtSec`.
+ * - Clamps `rawDtSec` to `[0.001, 0.05]` to prevent phase leaps after tab switches or GC pauses.
+ * - Filters frame-time jitter via exponential moving average (`smoothedDt`).
+ * - Tweens each anatomical channel toward its physiological target via frame-rate invariant
+ *   exponential interpolation `alpha = 1 - Math.exp(-lambda * smoothedDt)`.
+ */
+function stepBreathTweenEngine(
+  tween: BreathTweenState,
+  rawDtSec: number
+): BreathTweenState {
+  const clampedDt = Math.min(0.05, Math.max(0.001, rawDtSec));
+  const dtFilterAlpha = 1 - Math.exp(-clampedDt * 25);
+  tween.smoothedDt += (clampedDt - tween.smoothedDt) * dtFilterAlpha;
+
+  const dt = tween.smoothedDt;
+  const omega = 1.62; // ~3.88s per gentle, calm breath cycle (~15.5 breaths/min)
+  const twoPi = Math.PI * 2;
+  tween.phaseRad = (tween.phaseRad + dt * omega) % twoPi;
+
+  const targets = evaluateBreathTargetsFromPhase(tween.phaseRad);
+
+  // Frame-rate independent exponential tweening (invariant across 30Hz / 60Hz / 120Hz / variable FPS)
+  const tweenAlpha = 1 - Math.exp(-14.0 * dt);
+  tween.diaphragm01 += (targets.diaphragm01 - tween.diaphragm01) * tweenAlpha;
+  tween.chest01 += (targets.chest01 - tween.chest01) * tweenAlpha;
+  tween.shoulder01 += (targets.shoulder01 - tween.shoulder01) * tweenAlpha;
+  tween.head01 += (targets.head01 - tween.head01) * tweenAlpha;
+
+  return tween;
 }
 
 function getFabricPhysicsParams(fabricId: FabricMaterialId): {
@@ -138,8 +230,9 @@ function renderFrameWithClothPhysics(
   source: HTMLCanvasElement | HTMLImageElement,
   sim: ClothPhysicsChainState,
   physicsEnabled: boolean,
-  timeSec: number,
-  fabricId: FabricMaterialId
+  _timeSec: number,
+  fabricId: FabricMaterialId,
+  idleMode: PubgIdleMode = 'pubg-lobby'
 ): void {
   const ctx = mainCanvas.getContext('2d');
   if (!ctx) return;
@@ -148,38 +241,85 @@ function renderFrameWithClothPhysics(
 
   ctx.clearRect(0, 0, w, h);
 
-  // Always draw the full character frame 1:1 without horizontal strip-slicing
-  // so legs, trousers, ankles, and shoes remain 100% razor-sharp with zero broken pixels or shearing!
-  ctx.drawImage(source, 0, 0, w, h);
-
-  if (!physicsEnabled) {
+  if (!physicsEnabled || idleMode === 'off') {
+    ctx.drawImage(source, 0, 0, w, h);
     return;
   }
 
-  void timeSec;
-  void fabricId;
-  const CLOTH_START_Y = 396;
-  const CLOTH_END_Y = 920;
-  const spanY = CLOTH_END_Y - CLOTH_START_Y;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
-  // Dynamic kinetic fold sheen & shadow modulation across the upper/mid garment (`source-atop` preserves alpha & sharpness 100%)
+  void fabricId;
+  const breath = sim.breathTween;
+
+  // Zero-Slice Continuous Upper-Body Breathing Transform (0 horizontal band cuts -> 0% pixel tearing / "gãy pixel"!):
+  // - Lower body below hip/waist anchor (`y = 640..1152`) is drawn 1:1 static.
+  // - Upper body (`y = 0..640`) is drawn in ONE SINGLE continuous quad anchored at `y = 640` with `dx = 0, dw = w`
+  //   and a gentle vertical breathing expansion `scaleY = 1 + 0.0044 * breath` (~2.2px soft chest/shoulder rise,
+  //   0.00px seam offset at `y = 640`, and zero stair-stepping on collar, sleeves, or face).
+  const PIVOT_Y = 640;
+  const breathLiftScale =
+    1 + breath.chest01 * 0.0032 + breath.shoulder01 * 0.0014;
+  const upperDestH = PIVOT_Y * breathLiftScale;
+  const upperDestY = PIVOT_Y - upperDestH;
+
+  // 1. Single continuous quad for upper body (y = 0..640) — zero slicing seams!
+  ctx.drawImage(
+    source,
+    0,
+    0,
+    w,
+    PIVOT_Y,
+    0,
+    upperDestY,
+    w,
+    upperDestH
+  );
+
+  // 2. Single static 1:1 quad for lower body (y = 640..1152) — rock-solid hips, trousers, and shoes!
+  ctx.drawImage(
+    source,
+    0,
+    PIVOT_Y,
+    w,
+    h - PIVOT_Y,
+    0,
+    PIVOT_Y,
+    w,
+    h - PIVOT_Y
+  );
+
+  // 3. Subtle 3D Chest Inhalation Light Swell (`source-atop` keeps alpha silhouette 100% crisp)
   const tipSway = sim.nodesX[CLOTH_NODE_COUNT - 2];
-  if (Math.abs(tipSway) > 0.35 || sim.flare > 0.015) {
+  const breathHighlight = breath.chest01 * 0.032;
+  const sheenIntensity = Math.min(
+    0.08,
+    Math.abs(tipSway) * 0.0025 + sim.flare * 0.035 + breathHighlight
+  );
+
+  if (sheenIntensity > 0.005) {
     ctx.save();
     ctx.globalCompositeOperation = 'source-atop';
-    const sheenIntensity = Math.min(0.11, Math.abs(tipSway) * 0.0035 + sim.flare * 0.06);
-    const grad = ctx.createLinearGradient(w * 0.22, 480, w * 0.78, 860);
-    if (tipSway >= 0) {
-      grad.addColorStop(0, `rgba(28, 25, 23, ${(sheenIntensity * 0.65).toFixed(3)})`);
-      grad.addColorStop(0.5, 'rgba(255, 250, 240, 0.0)');
-      grad.addColorStop(1, `rgba(255, 250, 235, ${sheenIntensity.toFixed(3)})`);
-    } else {
-      grad.addColorStop(0, `rgba(255, 250, 235, ${sheenIntensity.toFixed(3)})`);
-      grad.addColorStop(0.5, 'rgba(255, 250, 240, 0.0)');
-      grad.addColorStop(1, `rgba(28, 25, 23, ${(sheenIntensity * 0.65).toFixed(3)})`);
-    }
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, CLOTH_START_Y, w, spanY);
+
+    const chestGrad = ctx.createRadialGradient(
+      w * 0.5,
+      335 - breath.chest01 * 3,
+      18,
+      w * 0.5,
+      355,
+      175
+    );
+    chestGrad.addColorStop(
+      0,
+      `rgba(255, 250, 238, ${sheenIntensity.toFixed(3)})`
+    );
+    chestGrad.addColorStop(
+      0.55,
+      `rgba(255, 248, 232, ${(sheenIntensity * 0.35).toFixed(3)})`
+    );
+    chestGrad.addColorStop(1, 'rgba(255, 248, 232, 0.0)');
+    ctx.fillStyle = chestGrad;
+    ctx.fillRect(w * 0.22, 220, w * 0.56, 300);
     ctx.restore();
   }
 }
@@ -279,15 +419,16 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
   >('studio');
   const lightAngleModeRef = useRef<'studio' | 'grazing' | 'rim'>('studio');
 
-  // Real-time Cloth Physics Simulation state (Hooke's law spring-damper chain + centrifugal skirt flare)
-  const [isPhysicsEnabled, setIsPhysicsEnabled] = useState<boolean>(() =>
-    typeof window === 'undefined' || !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
+  // Real-time Cloth Physics & Automatic Breathing state (always ON by default)
+  const [isPhysicsEnabled, setIsPhysicsEnabled] = useState<boolean>(true);
+  const [pubgIdleMode, setPubgIdleMode] = useState<PubgIdleMode>('pubg-lobby');
+  const pubgIdleModeRef = useRef<PubgIdleMode>('pubg-lobby');
   const isPhysicsEnabledRef = useRef<boolean>(isPhysicsEnabled);
   const fabricMaterialIdRef = useRef<FabricMaterialId>(fabricMaterialId);
   const activeSourceDrawableRef = useRef<
     HTMLCanvasElement | HTMLImageElement | null
   >(null);
+  const pedestalShadowRef = useRef<HTMLDivElement | null>(null);
   const clothSimRef = useRef<ClothPhysicsChainState>({
     nodesX: new Float32Array(CLOTH_NODE_COUNT),
     velX: new Float32Array(CLOTH_NODE_COUNT),
@@ -295,16 +436,15 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     flareVel: 0,
     prevAngleDeg: 0,
     lastTimestamp: 0,
+    breathTween: createInitialBreathTweenState(),
   });
 
   const triggerClothImpulse = useCallback((angularDeltaDeg: number) => {
     if (!isPhysicsEnabledRef.current) return;
     const sim = clothSimRef.current;
-    // Clamp impulse so both smooth drag and 90° step buttons produce natural silk lag & billow
     const clampedDelta = Math.max(-65, Math.min(65, angularDeltaDeg));
     for (let i = 1; i < CLOTH_NODE_COUNT; i++) {
       const weight = Math.pow(i / (CLOTH_NODE_COUNT - 1), 1.35);
-      // Fabric lags opposite to rotation direction, then swings through via spring restoring force
       sim.velX[i] = Math.max(
         -520,
         Math.min(520, sim.velX[i] - clampedDelta * weight * 11.5)
@@ -352,10 +492,13 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
   }, [lightAngleMode]);
 
   useEffect(() => {
+    pubgIdleModeRef.current = pubgIdleMode;
+  }, [pubgIdleMode]);
+
+  useEffect(() => {
     isPhysicsEnabledRef.current = isPhysicsEnabled;
     if (isPhysicsEnabled) {
-      // Give a gentle initial silk sway impulse when Physics is toggled ON so user immediately sees fabric movement
-      triggerClothImpulse(24);
+      triggerClothImpulse(16);
     } else {
       const sim = clothSimRef.current;
       sim.nodesX.fill(0);
@@ -369,7 +512,8 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
           sim,
           false,
           0,
-          fabricMaterialIdRef.current
+          fabricMaterialIdRef.current,
+          'off'
         );
       }
     }
@@ -573,7 +717,9 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
         powerPreference: 'default',
         preserveDrawingBuffer: true,
       });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, compactDevice ? 1.35 : 1.75));
+      renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio || 2, compactDevice ? 1.65 : 2.25)
+      );
       renderer.setClearColor(0xf2ede4, 1);
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -736,9 +882,12 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
         const { stiffness, damping, breezeAmp } = getFabricPhysicsParams(
           fabricMaterialIdRef.current
         );
+        const t = clock.elapsedTime;
+        const idleMult = pubgIdleModeRef.current === 'pubg-breeze' ? 1.45 : 1.0;
         glbSwayVel -= dAz * 6.5;
         const breezeTorque =
-          Math.sin(clock.elapsedTime * 2.8) * (breezeAmp * 0.004);
+          (Math.sin(t * 2.4) + 0.45 * Math.sin(t * 1.15 + 1.2)) *
+          (breezeAmp * 0.0065 * idleMult);
         const springAccel =
           -stiffness * 0.35 * glbSwayAngle - damping * glbSwayVel + breezeTorque;
         glbSwayVel += springAccel * dt;
@@ -747,10 +896,25 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
           Math.min(0.14, glbSwayAngle + glbSwayVel * dt)
         );
 
-        modelHolderRef.current.rotation.z = glbSwayAngle * 0.18;
+        // Pure 3D Idle Breathing synchronized with Delta-Time Tweening Engine
+        const breath3D = stepBreathTweenEngine(
+          clothSimRef.current.breathTween,
+          dt
+        );
+        modelHolderRef.current.position.set(0, breath3D.chest01 * 0.0055, 0);
+        modelHolderRef.current.scale.set(
+          1 +
+            (breath3D.chest01 * 0.0065 + breath3D.shoulder01 * 0.003) *
+              idleMult,
+          1 + breath3D.chest01 * 0.0055 * idleMult,
+          1 + breath3D.diaphragm01 * 0.008 * idleMult
+        );
+        modelHolderRef.current.rotation.set(0, 0, glbSwayAngle * 0.12);
         loadedModelRef.current?.setGarmentSway(glbSwayAngle / 0.14);
       } else if (modelHolderRef.current) {
-        modelHolderRef.current.rotation.z = 0;
+        modelHolderRef.current.position.set(0, 0, 0);
+        modelHolderRef.current.scale.set(1, 1, 1);
+        modelHolderRef.current.rotation.set(0, 0, 0);
         loadedModelRef.current?.setGarmentSway(0);
       }
 
@@ -1358,7 +1522,10 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     if (sectorDelta < -180) sectorDelta += 360;
     const tilt = Math.max(-45, Math.min(45, sectorDelta)) * 0.35;
     if (turntableCanvasRef.current) {
-      turntableCanvasRef.current.style.transform = `perspective(1100px) rotateY(${-tilt.toFixed(2)}deg)`;
+      turntableCanvasRef.current.style.transform =
+        Math.abs(tilt) > 0.08
+          ? `perspective(1100px) rotateY(${-tilt.toFixed(2)}deg)`
+          : 'none';
     }
   }, [triggerClothImpulse]);
 
@@ -1530,7 +1697,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
     isCharacterTab,
   ]);
 
-  // 6. Real-Time 60fps Spring-Damper Cloth Simulation Loop (Hooke's Law + Viscous Damping + Centrifugal Flare)
+  // 6. Real-Time 60fps Natural Breathing & Cloth Simulation Loop
   useEffect(() => {
     if (!isPhysicsEnabled || viewerMode !== 'turntable') return;
     let rafId = 0;
@@ -1539,8 +1706,13 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
 
     const stepPhysics = (now: number) => {
       rafId = requestAnimationFrame(stepPhysics);
-      const dt = Math.min(0.04, Math.max(0.001, (now - sim.lastTimestamp) * 0.001));
+      const rawDt = (now - sim.lastTimestamp) * 0.001;
       sim.lastTimestamp = now;
+
+      // Synchronize Delta-Time into the Breathing Tweening Engine
+      stepBreathTweenEngine(sim.breathTween, rawDt);
+      const dt = sim.breathTween.smoothedDt;
+      const timeSec = sim.breathTween.phaseRad;
 
       const { stiffness, damping } = getFabricPhysicsParams(
         fabricMaterialIdRef.current
@@ -1550,14 +1722,13 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
       sim.nodesX[0] = 0;
       sim.velX[0] = 0;
 
-      // Integrate coupled spring-damper chain nodes 1..7
+      // Integrate coupled spring-damper chain nodes 1..7 (only responds when rotating character)
       for (let i = 1; i < CLOTH_NODE_COUNT; i++) {
         const parentX = sim.nodesX[i - 1];
         const curX = sim.nodesX[i];
         const childX =
           i < CLOTH_NODE_COUNT - 1 ? sim.nodesX[i + 1] : curX;
 
-        // Hooke's Law restoring force toward parent node & vertical gravity plumb line
         const parentSpring = -stiffness * (curX - parentX * 0.86);
         const childSpring =
           i < CLOTH_NODE_COUNT - 1
@@ -1572,14 +1743,13 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
       }
 
       for (let i = 1; i < CLOTH_NODE_COUNT; i++) {
-        const maxDisp = 6 + i * 4.8; // Up to ~40px natural sway at the lower robe hem
+        const maxDisp = 6 + i * 4.8;
         sim.nodesX[i] = Math.max(
           -maxDisp,
           Math.min(maxDisp, sim.nodesX[i] + sim.velX[i] * dt)
         );
       }
 
-      // Centrifugal skirt & sleeve flare spring-damper integration
       const flareAccel = -110 * sim.flare - 7.5 * sim.flareVel;
       sim.flareVel += flareAccel * dt;
       sim.flare = Math.max(0, Math.min(1.0, sim.flare + sim.flareVel * dt));
@@ -1590,8 +1760,9 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
           activeSourceDrawableRef.current,
           sim,
           true,
-          now * 0.001,
-          fabricMaterialIdRef.current
+          timeSec,
+          fabricMaterialIdRef.current,
+          pubgIdleModeRef.current
         );
       }
     };
@@ -1756,18 +1927,21 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
             </button>
           )}
 
-          {/* Real-Time Cloth Physics Simulation Toggle Button */}
+          {/* Real-Time Breathing & Cloth Physics Toggle Button */}
           {(viewerMode === 'glb' || viewerMode === 'turntable') && (
             <button
               type="button"
-              onClick={() => setIsPhysicsEnabled((prev) => !prev)}
+              onClick={() => {
+                setIsPhysicsEnabled((prev) => !prev);
+                setPubgIdleMode('pubg-lobby');
+              }}
               data-testid="physics-toggle-button"
               className={`px-2.5 py-1 text-[11px] font-semibold border flex items-center gap-1.5 transition-colors cursor-pointer ${
                 isPhysicsEnabled
                   ? 'bg-[#1C1917] text-[#FDE68A] border-[#9A3412] shadow-xs'
                   : 'bg-[#FBF9F5] text-[#57534E] border-[#DFD8C8] hover:border-[#1C1917] hover:text-[#1C1917]'
               }`}
-              title="Bật/tắt mô phỏng vật lý chuyển động tà áo & tay áo theo quán tính khi xoay nhân vật (Real-time Cloth Physics)"
+              title="Bật/tắt nhịp thở tự nhiên của nhân vật"
             >
               <Wind
                 className={`w-3.5 h-3.5 ${
@@ -1776,7 +1950,7 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
                     : 'text-[#686259]'
                 }`}
               />
-              <span>Vải chuyển động</span>
+              <span>Nhịp thở</span>
               <span className="font-mono-tabular font-bold">
                 {isPhysicsEnabled ? 'ON' : 'OFF'}
               </span>
@@ -1939,27 +2113,31 @@ export const VietPhucCanvas: React.FC<VietPhucCanvasProps> = ({
                 }}
               />
 
-              {/* Soft Ground Contact Shadow beneath the character's shoes (no intrusive border ring) */}
+              {/* Soft Ground Contact Shadow beneath the character's shoes (synced with PUBG weight-shift) */}
               <div
-                className="absolute bottom-[5.5%] w-52 h-8 rounded-full pointer-events-none"
+                ref={pedestalShadowRef}
+                className="absolute bottom-[5.5%] w-52 h-8 rounded-full pointer-events-none transition-transform duration-75"
                 style={{
                   background:
-                    'radial-gradient(ellipse at center, rgba(28,25,23,0.24) 0%, rgba(28,25,23,0.08) 52%, rgba(28,25,23,0) 78%)',
+                    'radial-gradient(ellipse at center, rgba(28,25,23,0.26) 0%, rgba(28,25,23,0.09) 52%, rgba(28,25,23,0) 78%)',
                 }}
               />
 
-              {/* Single 100%-Opaque Active Frame rendered on Persistent Double-Buffered Canvas (ZERO flicker!) */}
+              {/* Single 100%-Opaque Active Frame rendered on Persistent Double-Buffered Canvas (ZERO flicker & HD Crisp!) */}
               <canvas
                 ref={turntableCanvasRef}
                 width={768}
                 height={1152}
                 className="relative z-10 w-full h-full object-contain pointer-events-none select-none"
                 style={{
-                  transform: `perspective(1100px) rotateY(${-sectorTiltDeg.toFixed(
-                    2
-                  )}deg)`,
+                  transform:
+                    Math.abs(sectorTiltDeg) > 0.08
+                      ? `perspective(1100px) rotateY(${-sectorTiltDeg.toFixed(
+                          2
+                        )}deg)`
+                      : 'none',
                   filter:
-                    'drop-shadow(0 10px 14px rgba(28, 25, 23, 0.14))',
+                    'contrast(1.03) saturate(1.02) drop-shadow(0 10px 14px rgba(28, 25, 23, 0.14))',
                 }}
               />
             </div>

@@ -2346,7 +2346,7 @@ export async function renderRecoloredTurntableFrame(params: {
   } = params;
 
   const accessoriesKey = [...accessories].sort().join(',');
-  const garmentCacheKey = `v48_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
+  const garmentCacheKey = `v50_hd_cas_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
     enableTrouserKey ? 1 : 0
   }|${patternId}|${hoaTietHex}|${patternConfig.scale.toFixed(
     2
@@ -4047,10 +4047,77 @@ export async function renderRecoloredTurntableFrame(params: {
       }
     }
 
+    // Contrast-Adaptive Sharpening (CAS) & Micro-Detail Enhancement Pass:
+    // Restores crisp HD definition to eyes, hair strands, collar borders, brocade patterns, and fabric folds
+    // after turnaround sheet upscaling, while clamping to local extrema so zero haloing occurs.
+    const sharpenedPixels = new Uint8ClampedArray(data);
+    const rowStride = w * 4;
+    const yStartCas = Math.max(2, headTopY - 6);
+    const yEndCas = Math.min(h - 3, footBottomY + 6);
+    const xStartCas = Math.max(2, Math.min(headMinX, footMinX) - 140);
+    const xEndCas = Math.min(w - 3, Math.max(headMaxX, footMaxX) + 140);
+
+    for (let y = yStartCas; y <= yEndCas; y++) {
+      const isFaceOrHairBand = y <= faceMaxY + 36;
+      const baseStrength = isFaceOrHairBand ? 0.68 : 0.48;
+      const yOff = y * rowStride;
+      for (let x = xStartCas; x <= xEndCas; x++) {
+        const i = yOff + x * 4;
+        const aC = data[i + 3];
+        if (aC < 180) continue;
+
+        const iN = i - rowStride;
+        const iS = i + rowStride;
+        const iW = i - 4;
+        const iE = i + 4;
+
+        // Only sharpen interior pixels so outer alpha silhouette edges stay silky-smooth without halos
+        if (
+          data[iN + 3] < 150 ||
+          data[iS + 3] < 150 ||
+          data[iW + 3] < 150 ||
+          data[iE + 3] < 150
+        ) {
+          continue;
+        }
+
+        const rC = data[i];
+        const gC = data[i + 1];
+        const bC = data[i + 2];
+
+        const rN = data[iN], gN = data[iN + 1], bN = data[iN + 2];
+        const rS = data[iS], gS = data[iS + 1], bS = data[iS + 2];
+        const rW = data[iW], gW = data[iW + 1], bW = data[iW + 2];
+        const rE = data[iE], gE = data[iE + 1], bE = data[iE + 2];
+
+        const lumC = rC * 0.299 + gC * 0.587 + bC * 0.114;
+        const lumN = rN * 0.299 + gN * 0.587 + bN * 0.114;
+        const lumS = rS * 0.299 + gS * 0.587 + bS * 0.114;
+        const lumW = rW * 0.299 + gW * 0.587 + bW * 0.114;
+        const lumE = rE * 0.299 + gE * 0.587 + bE * 0.114;
+
+        const minLum = Math.min(lumC, lumN, lumS, lumW, lumE);
+        const maxLum = Math.max(lumC, lumN, lumS, lumW, lumE);
+        const localContrast = (maxLum - minLum) / 255;
+
+        // Ignore flat areas (noise floor) and already maxed-out high-contrast edges
+        if (localContrast < 0.012) continue;
+
+        const casWeight =
+          baseStrength * Math.min(1.0, (1.0 - localContrast * 0.65) * 1.15);
+        const lapLum = lumC - (lumN + lumS + lumW + lumE) * 0.25;
+        const delta = Math.max(-22, Math.min(22, lapLum * casWeight));
+
+        sharpenedPixels[i] = Math.min(255, Math.max(0, Math.round(rC + delta)));
+        sharpenedPixels[i + 1] = Math.min(255, Math.max(0, Math.round(gC + delta)));
+        sharpenedPixels[i + 2] = Math.min(255, Math.max(0, Math.round(bC + delta)));
+      }
+    }
+
     cachedGarment = {
       w,
       h,
-      garmentPixels: new Uint8ClampedArray(data),
+      garmentPixels: sharpenedPixels,
       headTopY,
       craniumTopY,
       headMinX,
