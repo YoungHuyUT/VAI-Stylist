@@ -31,6 +31,8 @@ import turnaroundPhotorealFusionShorts from '../assets/images/turnaround_photore
 import turnaroundPhotorealNamFusionJeans from '../assets/images/turnaround_photoreal_nam_fusion_jeans_1790871165917.jpg';
 import turnaroundPhotorealNamFusionShorts from '../assets/images/turnaround_photoreal_nam_fusion_shorts_1790871200309.jpg';
 import turnaroundPhotorealFusionThuongLua from '../assets/images/turnaround_photoreal_fusion_thuong_lua_1790871751411.jpg';
+import turnaroundPhotorealFusionKaki from '../assets/images/turnaround_fusion_kaki_1791357497511.jpg';
+import turnaroundPhotorealNamFusionKaki from '../assets/images/turnaround_nam_fusion_kaki_1791357520916.jpg';
 
 export const IMAGE_MODEL = 'gemini-3.1-flash-image';
 
@@ -72,8 +74,8 @@ export const BUILTIN_BOTTOM_TURNAROUND_SHEETS: Record<string, string> = {
   'quan-linh-den-male': turnaroundPhotorealAoBaBaNam,
   'quan-jeans-ong-suong-female': turnaroundPhotorealFusionJeans,
   'quan-jeans-ong-suong-male': turnaroundPhotorealNamFusionJeans,
-  'quan-kaki-ong-rong-female': turnaroundPhotorealFusionJeans,
-  'quan-kaki-ong-rong-male': turnaroundPhotorealNamFusionJeans,
+  'quan-kaki-ong-rong-female': turnaroundPhotorealFusionKaki,
+  'quan-kaki-ong-rong-male': turnaroundPhotorealNamFusionKaki,
   'quan-short-jeans-cat-ngan-female': turnaroundPhotorealFusionShorts,
   'quan-short-jeans-cat-ngan-male': turnaroundPhotorealNamFusionShorts,
   'chan-vay-ngan-miniskirt-female': turnaroundPhotorealFusionThuongLua,

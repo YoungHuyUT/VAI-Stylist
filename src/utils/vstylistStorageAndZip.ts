@@ -2346,7 +2346,7 @@ export async function renderRecoloredTurntableFrame(params: {
   } = params;
 
   const accessoriesKey = [...accessories].sort().join(',');
-  const garmentCacheKey = `v46_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
+  const garmentCacheKey = `v48_garment|${modelId}|${frameIndex}|${aoHex}|${quanHex}|${bottomId}|${hemLengthCut}|${
     enableTrouserKey ? 1 : 0
   }|${patternId}|${hoaTietHex}|${patternConfig.scale.toFixed(
     2
@@ -2395,8 +2395,6 @@ export async function renderRecoloredTurntableFrame(params: {
       const sourceBottomId =
         bottomId === 'chan-vay-ngan-miniskirt'
           ? (gender === 'female' ? 'thuong-lua-xep-ly' : 'quan-short-jeans-cat-ngan')
-          : bottomId === 'quan-kaki-ong-rong'
-          ? 'quan-jeans-ong-suong'
           : bottomId;
       photographedBottomUnderlay = await getBottomFramePixels(
         sourceBottomId,
@@ -3929,13 +3927,13 @@ export async function renderRecoloredTurntableFrame(params: {
           ? quanHex.trim().toUpperCase() === '#D4AF37'
           : bottomId === 'quan-short-jeans-cat-ngan'
           ? quanHex.trim().toUpperCase() === '#2563EB'
-          : bottomId === 'chan-vay-ngan-miniskirt'
-          ? quanHex.trim().toUpperCase() === '#9A2B1D'
           : false;
 
-      const footwearStartY = isModernTrouserBottom
-        ? footBottomY
+      const fullLowerEndY = isModernTrouserBottom
+        ? h - 1
         : footBottomY - 18;
+      const sneakerTopY = 1026;
+
       for (let x = 1; x < w - 1; x++) {
         const topHemY = getTunicHemLimitY(x);
         const dx = Math.min(1, Math.abs((x - bodyCenterX) / 92));
@@ -3947,18 +3945,30 @@ export async function renderRecoloredTurntableFrame(params: {
           ? miniHemY
           : isShortJeans
           ? shortsHemY
-          : footwearStartY;
-        const startY = topHemY + 1;
-        const endY = Math.min(h - 1, footwearStartY, sourceEndY);
+          : fullLowerEndY;
+        const startY = Math.max(photographedBottomUnderlay.startY, topHemY + 1);
+        const endY = Math.min(h - 1, fullLowerEndY, sourceEndY);
 
         for (let y = startY; y <= endY; y++) {
-          const idx = (y * w + x) * 4;
+          const p = y * w + x;
+          // Never overwrite upper tunic or wide ceremonial sleeves
+          if (tunicPaintedMask[p] === 1) {
+            continue;
+          }
+
+          const idx = p * 4;
           const sourceIdx =
             ((y - photographedBottomUnderlay.startY) * w + x) * 4;
           const sourceA = photographedBottomUnderlay.bd[sourceIdx + 3];
           if (sourceA < 32) {
+            // Erase old base-costume trouser/skirt pixel outside the new bottom silhouette so zero double-layer overlap occurs
+            data[idx] = 0;
+            data[idx + 1] = 0;
+            data[idx + 2] = 0;
+            data[idx + 3] = 0;
             continue;
           }
+
           const sourceR = photographedBottomUnderlay.bd[sourceIdx];
           const sourceG = photographedBottomUnderlay.bd[sourceIdx + 1];
           const sourceB = photographedBottomUnderlay.bd[sourceIdx + 2];
@@ -3968,13 +3978,23 @@ export async function renderRecoloredTurntableFrame(params: {
             sourceG / 255,
             sourceB / 255
           );
+          const sourceLum =
+            (sourceR * 0.299 + sourceG * 0.587 + sourceB * 0.114) / 255;
+
           const sourceSkin =
             sourceHsv.h < 0.12 &&
             sourceHsv.s > 0.12 &&
             sourceR > sourceG + 7 &&
             sourceG > sourceB + 3 &&
             sourceR - sourceB > 20 &&
-            sourceR - sourceG < 100;
+            sourceR - sourceG < 100 &&
+            bottomId !== 'quan-kaki-ong-rong';
+
+          // Keep white sneakers at the feet clean & untinted
+          const isSneakerFootwear =
+            isModernTrouserBottom &&
+            (y > sneakerTopY ||
+              (y >= 1016 && sourceHsv.s < 0.22 && sourceLum > 0.48));
 
           const distBelowHem = y - topHemY;
           const tunicContactShadow =
@@ -3982,11 +4002,11 @@ export async function renderRecoloredTurntableFrame(params: {
               ? 0.82 + 0.18 * (distBelowHem / 16)
               : 1.0;
 
-          if (sourceSkin) {
+          if (sourceSkin || isSneakerFootwear) {
             data[idx] = Math.round(sourceR * tunicContactShadow);
             data[idx + 1] = Math.round(sourceG * tunicContactShadow);
             data[idx + 2] = Math.round(sourceB * tunicContactShadow);
-            data[idx + 3] = Math.max(data[idx + 3], sourceA);
+            data[idx + 3] = sourceA;
             continue;
           }
 
@@ -3995,15 +4015,17 @@ export async function renderRecoloredTurntableFrame(params: {
             data[idx] = Math.round(sourceR * tunicContactShadow);
             data[idx + 1] = Math.round(sourceG * tunicContactShadow);
             data[idx + 2] = Math.round(sourceB * tunicContactShadow);
-            data[idx + 3] = Math.max(data[idx + 3], sourceA);
+            data[idx + 3] = sourceA;
             continue;
           }
 
           // Luminosity-preserving tone mapping for custom selected colors
-          const sourceLum = (sourceR * 0.299 + sourceG * 0.587 + sourceB * 0.114) / 255;
           const toneShade = Math.min(
-            1.05,
-            Math.max(0.12, (0.28 + sourceLum * 0.84) * tunicContactShadow)
+            1.06,
+            Math.max(
+              0.16,
+              (0.28 + sourceLum * 0.84) * tunicContactShadow
+            )
           );
           const targetEffectiveV =
             targetQuanHsv.v < 0.38
@@ -4011,13 +4033,16 @@ export async function renderRecoloredTurntableFrame(params: {
               : targetQuanHsv.v;
           const tinted = hsvToRgb(
             targetQuanHsv.h,
-            Math.min(1.0, targetQuanHsv.s * (0.92 + 0.12 * (1.0 - sourceLum))),
+            Math.min(
+              1.0,
+              targetQuanHsv.s * (0.92 + 0.12 * (1.0 - sourceLum))
+            ),
             Math.min(0.99, targetEffectiveV * toneShade)
           );
           data[idx] = Math.round(tinted.r * 255);
           data[idx + 1] = Math.round(tinted.g * 255);
           data[idx + 2] = Math.round(tinted.b * 255);
-          data[idx + 3] = Math.max(data[idx + 3], sourceA);
+          data[idx + 3] = sourceA;
         }
       }
     }
