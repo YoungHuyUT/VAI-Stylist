@@ -4,6 +4,7 @@
 ---
 
 **LINK Web trải nghiệm: https://vai-stylist3d.ai.studio/**
+**Sản phẩm được hạng 9/297 đội thi :333**
 ## 📑 Mục Lục
 1. [Giới Thiệu Tổng Quan](#-giới-thiệu-tổng-quan)
 2. [Sơ Đồ Kiến Trúc Hệ Thống (High-Level Architecture)](#-sơ-đồ-kiến-trúc-hệ-thống-high-level-architecture)
